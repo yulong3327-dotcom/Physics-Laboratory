@@ -1,4 +1,5 @@
 import type { OpticalComponent } from './types'
+import { isMirror, mirrorPath, mirrorSurface } from './mirrorGeometry'
 
 type Bounds = { x: number; y: number; width: number; height: number }
 const STROKE = '#242a27'
@@ -11,6 +12,10 @@ export function opticalSymbolBounds(c: OpticalComponent): Bounds {
   if (c.kind === 'object') return { x: -3.4, y: -c.height - 1.4, width: 6.8, height: c.height + 3 }
   if (c.kind === 'point-source') return { x: -3.4, y: -3.4, width: 6.8, height: 6.8 }
   if (c.kind === 'laser') return { x: -13.5, y: -3, width: 14.5, height: 6 }
+  if (isMirror(c)) {
+    const edge = mirrorSurface(c, c.height / 2).point.x
+    return { x: Math.min(0, edge) - 2.5, y: -c.height / 2 - 2.5, width: Math.abs(edge) + 5, height: c.height + 5 }
+  }
   const width = c.kind === 'glass-slab' || c.kind === 'prism' ? c.width + 2 : 7
   return { x: -width / 2, y: -c.height / 2 - 1, width, height: c.height + 3 }
 }
@@ -33,6 +38,22 @@ function arrowPath(height: number) {
   return `M${-shaft} 0H${shaft}V${shoulder}H${head}L0 ${-height}L${-head} ${shoulder}H${-shaft}Z`
 }
 
+function Mirror({ component: c, thumbnail }: { component: OpticalComponent; thumbnail: boolean }) {
+  const p = lineProps(thumbnail), count = Math.max(2, Math.ceil(c.height / 2.5))
+  return <g className="optics-mirror">
+    <g {...p} strokeWidth={thumbnail ? 1 : 1.2} opacity=".6">
+      {Array.from({ length: count }, (_, i) => {
+        const y = c.height * ((i + .5) / count - .5)
+        const { point, frontNormal: n } = mirrorSurface(c, y)
+        // Hatch marks start on the same circular surface as ray intersections.
+        const dx = -1.8 * n.x + 1.1 * n.y, dy = -1.8 * n.y - 1.1 * n.x
+        return <path key={i} d={`M${point.x} ${point.y}l${dx} ${dy}`} vectorEffect="non-scaling-stroke" />
+      })}
+    </g>
+    <path className="optics-mirror-surface" d={mirrorPath(c)} fill="none" {...p} />
+  </g>
+}
+
 export function OpticalSymbol({ component: c, thumbnail = false }: { component: OpticalComponent; thumbnail?: boolean }) {
   const h = c.height / 2
   const p = lineProps(thumbnail)
@@ -40,7 +61,7 @@ export function OpticalSymbol({ component: c, thumbnail = false }: { component: 
   switch (c.kind) {
     case 'convex-lens': shape = <Lens height={c.height} thumbnail={thumbnail} concave={false} />; break
     case 'concave-lens': shape = <Lens height={c.height} thumbnail={thumbnail} concave />; break
-    case 'plane-mirror': shape = <g><line x1="0" y1={-h} x2="0" y2={h} {...p} /><g {...p} opacity=".75">{Array.from({ length: Math.max(2, Math.ceil(c.height / 2.4)) }, (_, i) => <path key={i} d={`M0 ${-h + i * 2.4}l1.8 1.3`} />)}</g></g>; break
+    case 'plane-mirror': case 'concave-mirror': case 'convex-mirror': shape = <Mirror component={c} thumbnail={thumbnail} />; break
     case 'screen': shape = <g><line x1="0" y1={-h} x2="0" y2={h} {...p} /><line x1="3" y1={-h} x2="3" y2={h} stroke="#aab3ad" strokeDasharray="1.5 1.5" vectorEffect="non-scaling-stroke" /><path d={`M-2 ${h + 1.2}H3`} {...p} /></g>; break
     case 'aperture': { const opening = Math.min(c.height, c.opening) / 2; shape = <g><line x1="0" y1={-h} x2="0" y2={-opening} {...p} /><line x1="0" y1={opening} x2="0" y2={h} {...p} /><path d={`M-2 ${-opening}H2M-2 ${opening}H2`} stroke="#9aa59e" strokeDasharray="1 1" vectorEffect="non-scaling-stroke" /></g>; break }
     case 'glass-slab': shape = <rect x={-c.width / 2} y={-h} width={c.width} height={c.height} fill={GLASS} {...p} />; break

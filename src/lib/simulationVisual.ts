@@ -27,6 +27,9 @@ export function renderPhysicalOverlay(component: CircuitComponent, asset: Physic
     const brightness = Math.max(0, Math.min(1, state?.brightness ?? lamp.defaultBrightness))
     parts.push(`<image data-lamp-glow="${brightness}" href="${escapeSvg(lamp.glowSrc)}" width="${asset.sourceWidth}" height="${asset.sourceHeight}" preserveAspectRatio="xMidYMid meet" opacity="${Math.sqrt(brightness)}"/>`)
   }
+  if (component.type === 'lamp' && state?.lampStatus === 'overload') {
+    parts.push(`<g data-lamp-status="overload"><title>灯泡过载：实际 ${Number(state.power.toPrecision(4))} W / 额定 ${state.ratedPower ?? p.ratedPower} W，有烧毁风险</title><rect x="3" y="3" width="${asset.sourceWidth - 6}" height="${asset.sourceHeight - 6}" rx="18" fill="none" stroke="#c4473b" stroke-width="6"/><circle cx="${asset.sourceWidth - 25}" cy="25" r="19" fill="#c4473b"/><text x="${asset.sourceWidth - 25}" y="34" text-anchor="middle" font-size="29" font-weight="bold" fill="white">!</text></g>`)
+  }
   const dial = asset.meterDial
   if (dial) {
     const range = state?.range || p.meterRange
@@ -55,7 +58,8 @@ export function renderPhysicalOverlay(component: CircuitComponent, asset: Physic
 
 export function symbolOptions(component: CircuitComponent, state?: ComponentSimulationResult, vertical = component.orientation === 'vertical') {
   const p = getComponentParameters(component)
-  return { switchClosed: p.switchClosed, switchPosition: p.switchPosition, sliderPosition: p.sliderPosition, brightness: state?.brightness ?? 0, textRotation: vertical ? -90 : 0 }
+  return { switchClosed: p.switchClosed, switchPosition: p.switchPosition, sliderPosition: p.sliderPosition, brightness: state?.brightness ?? 0,
+    lampOverload: state?.lampStatus === 'overload', lampPower: state?.power, lampRatedPower: state?.ratedPower ?? p.ratedPower, textRotation: vertical ? -90 : 0 }
 }
 
 export function componentImageSources(component: CircuitComponent) {

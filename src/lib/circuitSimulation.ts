@@ -4,6 +4,14 @@ import { getPhysicalAsset } from '../data/physicalAssets';
 import type { CircuitComponent, CircuitGraph, CircuitWarning, ComponentParameters } from '../types/circuit';
 
 export type MeterStatus = 'ok' | 'reverse' | 'overload' | 'floating' | 'miswired';
+export interface SimulationBranchReading {
+  from: string;
+  to: string;
+  voltage: number;
+  current: number;
+  power: number;
+  resistance: number;
+}
 export interface ComponentSimulationResult {
   voltage: number;
   current: number;
@@ -16,14 +24,20 @@ export interface ComponentSimulationResult {
   range?: number;
   unit?: 'A' | 'V';
   meterStatus?: MeterStatus;
+  lampStatus?: 'off' | 'normal' | 'overload';
+  ratedPower?: number;
+  /** Direction and terminal pair of the scalar voltage/current, when applicable. */
+  measurementTerminals?: [string, string];
+  branches?: SimulationBranchReading[];
 }
 
 export interface CircuitSimulationResult {
-  status: 'no_source' | 'open' | 'operating' | 'short_circuit' | 'error';
+  status: 'no_source' | 'open' | 'operating' | 'overload' | 'short_circuit' | 'error';
   components: Record<string, ComponentSimulationResult>;
   terminalVoltages: Record<string, number>;
   wireCurrents: Record<string, number>;
-  totalCurrent: number;
+  /** Single supply port magnitude; null for multiple ports/islands or a shorted source loop. */
+  totalCurrent: number | null;
   warnings: CircuitWarning[];
 }
 
@@ -31,7 +45,8 @@ const MIN_RESISTANCE = 1e-4;
 const ACTIVE_CURRENT = 1e-5;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const resistance = (value: number) => clamp(value, MIN_RESISTANCE, 1e9);
-const zero = (value: number) => Math.abs(value) < 1e-10 ? 0 : value;
+// Preserve real small quantities; display/animation thresholds belong in the UI.
+const zero = (value: number) => value === 0 ? 0 : value;
 
 export function getComponentParameters(component: CircuitComponent): Required<ComponentParameters> {
   const values = component.parameters ?? {};
@@ -84,21 +99,57 @@ interface Branch {
 interface Source { componentId: string; a: string; b: string; voltage: number; resistance: number }
 interface Meter { positive: string; negative: string; range: number; status: MeterStatus; branch?: Branch }
 
-function lowResistancePath(a: string, b: string, branches: Branch[]): boolean {
-  const distances = new Map<string, number>([[a, 0]]);
-  const queue = [a];
-  while (queue.length) {
-    const node = queue.shift()!;
-    const cost = distances.get(node)!;
-    if (node === b) return true;
-    for (const branch of branches) {
-      const other = branch.a === node ? branch.b : branch.b === node ? branch.a : undefined;
-      if (other === undefined || cost + branch.resistance > 0.1) continue;
-      const next = cost + branch.resistance;
-      if (next < (distances.get(other) ?? Infinity)) { distances.set(other, next); queue.push(other); }
+function reachableNodes(start: string, edges: { a: string; b: string }[]) {
+  const nodes = new Set([start]);
+  for (const node of nodes) for (const edge of edges) {
+    if (edge.a === node) nodes.add(edge.b);
+    if (edge.b === node) nodes.add(edge.a);
+  }
+  return nodes;
+}
+
+/** Resistance seen by a 1 V test supply, including parallel paths and bridges. */
+function equivalentResistance(a: string, b: string, branches: Branch[]): number {
+  if (a === b) return 0;
+  const connected = reachableNodes(a, branches);
+  if (!connected.has(b)) return Infinity;
+  const nodes = [...connected].filter(node => node !== a && node !== b);
+  const indices = new Map(nodes.map((node, index) => [node, index]));
+  const matrix = Matrix.zeros(nodes.length, nodes.length), rhs = Matrix.zeros(nodes.length, 1);
+  for (const branch of branches) {
+    if (!connected.has(branch.a) || branch.a === branch.b) continue;
+    const g = 1 / branch.resistance;
+    for (const [from, to] of [[branch.a, branch.b], [branch.b, branch.a]]) {
+      const row = indices.get(from), col = indices.get(to);
+      if (row === undefined) continue;
+      matrix.set(row, row, matrix.get(row, row) + g);
+      if (col !== undefined) matrix.set(row, col, matrix.get(row, col) - g);
+      else if (to === a) rhs.set(row, 0, rhs.get(row, 0) + g);
     }
   }
-  return false;
+  try {
+    const solution = nodes.length ? solve(matrix, rhs) : undefined;
+    const potential = (node: string) => node === a ? 1 : node === b ? 0 : solution!.get(indices.get(node)!, 0);
+    const current = branches.reduce((sum, branch) => sum + (branch.a === a ? (1 - potential(branch.b)) / branch.resistance
+      : branch.b === a ? (1 - potential(branch.a)) / branch.resistance : 0), 0);
+    return current > 0 ? 1 / current : Infinity;
+  } catch { return Infinity; }
+}
+
+/** Do not add currents through cells in series or invent a total for multiple ports. */
+function supplyCurrent(sources: Source[], branches: Branch[], currents: Map<string, number>): number | null {
+  if (!sources.length) return 0;
+  if (sources.length === 1) return Math.abs(currents.get(sources[0].componentId) ?? 0);
+  const nodes = new Set(sources.flatMap(source => [source.a, source.b]));
+  if (reachableNodes(sources[0].a, sources).size !== nodes.size) return null;
+  const terminals = [...nodes].filter(node => sources.filter(source => source.a === node || source.b === node).length === 1
+    || branches.some(branch => branch.a !== branch.b && (branch.a === node || branch.b === node)));
+  // With no external load, two parallel source nodes still define one supply port.
+  const ports = nodes.size === 2 ? [...nodes] : terminals;
+  if (ports.length !== 2) return null;
+  const node = ports[0];
+  return Math.abs(sources.reduce((sum, source) => sum + (source.a === node ? 1 : 0) * (currents.get(source.componentId) ?? 0)
+    - (source.b === node ? 1 : 0) * (currents.get(source.componentId) ?? 0), 0));
 }
 
 /** Linear DC operating point; each disconnected island receives its own voltage reference. */
@@ -195,6 +246,11 @@ export function simulateCircuit(graph: CircuitGraph): CircuitSimulationResult {
   const size = unknownNodes.length + sources.length;
   const voltages = new Map<string, number>();
   const sourceCurrents = new Map<string, number>();
+  // A branch with no alternative conductive path is a graph bridge. KCL fixes
+  // its current at exactly zero without truncating tiny currents in real loops.
+  const conductive = [...branches, ...sources];
+  const bridges = new Set(conductive.filter(edge => edge.a !== edge.b
+    && !reachableNodes(edge.a, conductive.filter(other => other !== edge)).has(edge.b)));
 
   try {
     if (size) {
@@ -219,7 +275,7 @@ export function simulateCircuit(graph: CircuitGraph): CircuitSimulationResult {
       const solution = solve(matrix, rhs);
       if (solution.to1DArray().some(value => !Number.isFinite(value))) throw new Error('Nonfinite operating point');
       for (const node of nodeNames) voltages.set(node, groundNodes.has(node) ? 0 : zero(solution.get(index.get(node)!, 0)));
-      sources.forEach((source, number) => sourceCurrents.set(source.componentId, zero(solution.get(unknownNodes.length + number, 0))));
+      sources.forEach((source, number) => sourceCurrents.set(source.componentId, bridges.has(source) ? 0 : zero(solution.get(unknownNodes.length + number, 0))));
     } else nodeNames.forEach(node => voltages.set(node, 0));
   } catch {
     result.status = 'error';
@@ -227,7 +283,7 @@ export function simulateCircuit(graph: CircuitGraph): CircuitSimulationResult {
     return result;
   }
   const voltage = (node: string) => voltages.get(node) ?? 0;
-  const branchCurrent = (branch: Branch) => zero((voltage(branch.a) - voltage(branch.b)) / branch.resistance);
+  const branchCurrent = (branch: Branch) => bridges.has(branch) ? 0 : zero((voltage(branch.a) - voltage(branch.b)) / branch.resistance);
   const injections = new Map<string, number>();
   const inject = (endpoint: string, current: number) => injections.set(endpoint, (injections.get(endpoint) || 0) + current);
   for (const branch of branches) { const current = branchCurrent(branch); inject(branch.terminalA, -current); inject(branch.terminalB, current); }
@@ -236,8 +292,52 @@ export function simulateCircuit(graph: CircuitGraph): CircuitSimulationResult {
   const flows = solveWireCurrents([...graph.connections, ...internalRails], injections);
   for (const wire of graph.connections) result.wireCurrents[wire.id] = flows[wire.id] || 0;
   for (const value of endpoints) result.terminalVoltages[value] = voltage(nets.find(value));
-  let hasLoadCurrent = false;
+  // A closed supply path is a topology fact, independent of the display/animation threshold.
+  // Exclude voltmeters so their loading does not turn an otherwise open experiment into a closed one.
+  const hasSupplyLoop = sources.some(source => source.voltage > 0 && reachableNodes(source.a,
+    [...branches.filter(branch => !branch.meter), ...sources.filter(other => other !== source)]).has(source.b));
+  const equivalentResistances = new Map<string, number>();
+  const loadResistance = (source: Source) => {
+    const key = JSON.stringify([source.a, source.b].sort());
+    if (!equivalentResistances.has(key)) equivalentResistances.set(key, equivalentResistance(source.a, source.b, branches));
+    return equivalentResistances.get(key)!;
+  };
   let hasShort = false;
+  let hasOverload = false;
+  const shortedSources = new Set<string>();
+  // The external load can span several cells in series. Test passive paths
+  // between every pair of nodes in each source group, excluding cell internals.
+  const checkedSourceNodes = new Set<string>();
+  for (const source of sources) {
+    if (checkedSourceNodes.has(source.a)) continue;
+    const group = reachableNodes(source.a, sources);
+    group.forEach(node => checkedSourceNodes.add(node));
+    const nodes = [...group].filter(node => branches.some(branch => branch.a !== branch.b && (branch.a === node || branch.b === node)));
+    const groupSources = sources.filter(item => group.has(item.a));
+    if (!groupSources.some(item => item.voltage > 0)) continue;
+    const lowResistance = nodes.some((a, i) => nodes.slice(i + 1).some(b => equivalentResistance(a, b, branches) <= .1 * (1 + 1e-9)));
+    if (lowResistance) groupSources.forEach(item => shortedSources.add(item.componentId));
+  }
+  let sourceLoopShort = false;
+  // A wire-shortened series pack becomes a source-only loop after net merging.
+  // Compare EMFs around that loop separately from its external load resistance.
+  for (const source of sources) {
+    if (source.a === source.b || source.voltage <= 0) continue; // Single-cell shorts are checked below.
+    const potentials = new Map([[source.b, 0]]);
+    for (const [node, value] of potentials) for (const other of sources) {
+      if (other === source) continue;
+      if (other.b === node && !potentials.has(other.a)) potentials.set(other.a, value + other.voltage);
+      if (other.a === node && !potentials.has(other.b)) potentials.set(other.b, value - other.voltage);
+    }
+    const parallelVoltage = potentials.get(source.a);
+    if (parallelVoltage === undefined || Math.abs(parallelVoltage - source.voltage) <= Math.max(Math.abs(parallelVoltage), source.voltage) * 1e-9) continue;
+    if (parallelVoltage <= 0) {
+      sourceLoopShort = true;
+      shortedSources.add(source.componentId);
+    } else {
+      warning('polarity_error', '直接相连的电源组电动势不一致，存在内部环流或充电电流；请查看各电池电流。', source.componentId);
+    }
+  }
   for (const component of graph.components) {
     const state = result.components[component.id];
     const params = getComponentParameters(component);
@@ -255,10 +355,9 @@ export function simulateCircuit(graph: CircuitGraph): CircuitSimulationResult {
       state.power = state.voltage * state.current;
       state.active = Math.abs(state.current) > ACTIVE_CURRENT;
       state.effectiveResistance = params.internalResistance;
-      result.totalCurrent += Math.max(0, state.current);
-      if (source.voltage > 0 && lowResistancePath(source.a, source.b, branches)) {
+      if (source.voltage > 0 && (shortedSources.has(component.id) || loadResistance(source) <= 0.1 * (1 + 1e-9))) {
         hasShort = true;
-        warning('short_circuit', `${component.label || '电源'}两端存在低阻通路，短路电流 ${Math.abs(state.current).toFixed(2)} A。`, component.id, 'error');
+        warning('short_circuit', `${component.label || '电源'}所在电源组存在低阻通路或电源短接环流，该电池电流 ${Math.abs(state.current).toFixed(2)} A。`, component.id, 'error');
       }
     } else if (component.type === 'switch' || component.type === 'switch_spdt') {
       const left = component.type === 'switch' ? 'left' : 'common';
@@ -266,14 +365,23 @@ export function simulateCircuit(graph: CircuitGraph): CircuitSimulationResult {
       state.voltage = zero(voltage(endpoint(component, left)) - voltage(endpoint(component, right)));
     } else if (component.type === 'rheostat' || component.type === 'potentiometer') {
       const currents = parts.map(branchCurrent);
-      state.current = zero(currents.reduce((chosen, current) => Math.abs(current) > Math.abs(chosen) ? current : chosen, 0));
       const usedA = wired.has(`${component.id}.a`), usedB = wired.has(`${component.id}.b`);
       const usedSlider = component.type === 'rheostat' ? wired.has(`${component.id}.c`) || wired.has(`${component.id}.d`) : wired.has(`${component.id}.w`);
-      state.effectiveResistance = usedA && usedB && !usedSlider ? params.maxResistance
-        : usedA ? params.maxResistance * params.sliderPosition
-        : usedB ? params.maxResistance * (1 - params.sliderPosition) : 0;
-      state.voltage = zero(state.current * state.effectiveResistance);
-      state.active = Math.abs(state.current) > ACTIVE_CURRENT;
+      const slider = component.type === 'rheostat' ? 'c' : 'w';
+      state.branches = parts.map(branch => ({ from: branch.terminalA.split('.').at(-1)!, to: branch.terminalB.split('.').at(-1)!,
+        voltage: zero(voltage(branch.a) - voltage(branch.b)), current: branchCurrent(branch),
+        power: branchCurrent(branch) ** 2 * branch.resistance, resistance: branch.resistance }));
+      const used = [usedA ? 'a' : undefined, usedB ? 'b' : undefined, usedSlider ? slider : undefined].filter((value): value is string => !!value);
+      const ports = [...new Set(used.map(terminal => endpoint(component, terminal)))];
+      const from = usedA ? 'a' : slider;
+      const to = usedA && usedSlider && (!usedB || endpoint(component, 'a') === endpoint(component, 'b')) ? slider : 'b';
+      const fromNode = endpoint(component, from);
+      state.measurementTerminals = [from, to];
+      state.voltage = zero(voltage(fromNode) - voltage(endpoint(component, to)));
+      state.current = zero(parts.reduce((sum, branch) => sum + (branch.a === fromNode ? branchCurrent(branch) : 0)
+        - (branch.b === fromNode ? branchCurrent(branch) : 0), 0));
+      state.effectiveResistance = ports.length === 2 && state.current !== 0 ? Math.abs(state.voltage / state.current) : undefined;
+      state.active = currents.some(current => Math.abs(current) > ACTIVE_CURRENT);
       if (component.type === 'rheostat' && !usedA && !usedB && wired.has(`${component.id}.c`) && wired.has(`${component.id}.d`)) {
         warning('short_circuit', '变阻器 C、D 同属滑杆，接这两个端子不会接入电阻。', component.id);
       }
@@ -303,18 +411,24 @@ export function simulateCircuit(graph: CircuitGraph): CircuitSimulationResult {
     } else if (component.type === 'lamp') {
       state.brightness = clamp(state.power / params.ratedPower, 0, 1);
       state.active = state.brightness > 0.005;
-      if (state.power > params.ratedPower * 1.2) warning('overload', '灯泡功率超过额定值，存在烧毁风险。', component.id);
+      state.ratedPower = params.ratedPower;
+      // Only suppress floating-point roundoff at the rating; this is not a thermal failure model.
+      state.lampStatus = state.power > params.ratedPower * (1 + 1e-9) ? 'overload' : state.active ? 'normal' : 'off';
+      if (state.lampStatus === 'overload') {
+        hasOverload = true;
+        warning('overload', `灯泡实际功率 ${Number(state.power.toPrecision(4))} W 超过额定 ${params.ratedPower} W，存在烧毁风险；尚未模拟热损坏过程。`, component.id, 'error');
+      }
     }
     if (component.type === 'motor' || component.type === 'bell' || component.type === 'buzzer') {
       warning('simulation_limit', component.type === 'buzzer'
         ? '蜂鸣器按有源直流负载计算；素材未标明极性和类型，响声及声学过程不在仿真范围内。'
         : '该元件按等效电阻计算；机械运动、反电动势和瞬态过程未建模。', component.id, 'info');
     }
-    if (!['battery', 'voltmeter', 'ammeter', 'galvanometer', 'switch', 'switch_spdt'].includes(component.type) && state.active) hasLoadCurrent = true;
   }
-  result.totalCurrent = zero(result.totalCurrent);
+  const totalCurrent = supplyCurrent(sources, branches, sourceCurrents);
+  result.totalCurrent = sourceLoopShort || totalCurrent === null ? null : zero(totalCurrent);
   result.status = !sources.some(source => source.voltage > 0) ? 'no_source' : hasShort ? 'short_circuit'
-    : hasLoadCurrent || result.totalCurrent > ACTIVE_CURRENT ? 'operating' : 'open';
+    : hasOverload ? 'overload' : hasSupplyLoop ? 'operating' : 'open';
   if (result.status === 'open') warning('open_circuit', '电路无闭合供电回路或仅有高阻测量支路。', undefined, 'info');
   return result;
 }

@@ -21,6 +21,9 @@ export interface SymbolRenderOptions {
   switchPosition?: 'left' | 'right' | 'open';
   sliderPosition?: number;
   brightness?: number;
+  lampOverload?: boolean;
+  lampPower?: number;
+  lampRatedPower?: number;
   textRotation?: number;
   meterThirdTerminal?: boolean;
 }
@@ -86,8 +89,9 @@ export function renderSymbol(
 
     case 'lamp':
       return [
+        options.lampOverload ? `<g data-lamp-status="overload"><title>灯泡过载：实际 ${Number((options.lampPower ?? 0).toPrecision(4))} W / 额定 ${options.lampRatedPower} W，有烧毁风险</title><circle cx="0" cy="0" r="19" fill="none" stroke="#c4473b" stroke-width="2.5"/><text x="24" y="-12" fill="#c4473b" text-anchor="middle" font-size="17" font-weight="bold" transform="rotate(${options.textRotation || 0} 24 -17)">!</text></g>` : '',
         `<line x1="-40" y1="0" x2="-15" y2="0" stroke="${stroke}" stroke-width="${sw}"/>`,
-        `<circle cx="0" cy="0" r="15" stroke="${stroke}" stroke-width="${sw}" fill="${(options.brightness || 0) > 0.01 ? '#ffe395' : FILL_NONE}"/>`,
+        `<circle cx="0" cy="0" r="15" stroke="${options.lampOverload ? '#c4473b' : stroke}" stroke-width="${sw}" fill="${options.lampOverload ? '#ffd8d1' : (options.brightness || 0) > 0.01 ? '#ffe395' : FILL_NONE}"/>`,
         `<line x1="-11" y1="-11" x2="11" y2="11" stroke="${stroke}" stroke-width="${sw}"/>`,
         `<line x1="11" y1="-11" x2="-11" y2="11" stroke="${stroke}" stroke-width="${sw}"/>`,
         `<line x1="15" y1="0" x2="40" y2="0" stroke="${stroke}" stroke-width="${sw}"/>`,

@@ -29,7 +29,7 @@ export interface PrepareCircuitGeometryOptions extends CircuitGeometryOptions {
 function renderingState(graph: CircuitGraph, options: CircuitGeometryOptions) {
   const states: Record<string, ComponentSimulationResult> = {}
   const currents: Record<string, number> = {}
-  if (options.mode === 'symbolic' || (options.viewMode !== 'real' && !options.currentFlow)) return { states, currents }
+  if (options.mode === 'symbolic') return { states, currents }
   if (options.physicsModel === 'experiment') {
     const result = simulateCircuit(graph)
     if (result.status !== 'error') {
@@ -56,6 +56,8 @@ function renderingState(graph: CircuitGraph, options: CircuitGeometryOptions) {
       ? state.meterStatus as ComponentSimulationResult['meterStatus'] : undefined
     states[component.id] = { voltage, current, power, active: Math.abs(current) > 1e-5,
       brightness: component.type === 'lamp' ? Math.max(0, Math.min(1, power / params.ratedPower)) : 0,
+      lampStatus: component.type === 'lamp' ? power > params.ratedPower * (1 + 1e-9) ? 'overload' : power / params.ratedPower > 0.005 ? 'normal' : 'off' : undefined,
+      ratedPower: component.type === 'lamp' ? params.ratedPower : undefined,
       reading: value(state.reading), range: state.range, unit: state.unit, meterStatus }
   }
   return { states, currents }

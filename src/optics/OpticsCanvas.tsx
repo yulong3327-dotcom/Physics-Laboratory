@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Crosshair, Grid3X3, Magnet, Maximize, Minus, Plus } from 'lucide-react'
 import { OpticalImageArrow, OpticalSymbol, opticalSymbolBounds } from './OpticalSymbol'
+import { isCurvedMirror } from './mirrorGeometry'
 import { createOpticalComponent, opticalLibrary } from './library'
 import { measureImages, simulateOptics, wavelengthColor } from './simulation'
 import { useOpticsStore } from './store'
@@ -167,7 +168,7 @@ export function OpticsCanvas({ placement, onPlaced }: { placement: OpticsKind | 
     rayArrows.push({ x, y, angle: Math.atan2(to.y - from.y, to.x - from.x) * 180 / Math.PI, index })
   }
   const axisComponents = scene.components
-    .filter(c => c.enabled && ['convex-lens', 'concave-lens', 'plane-mirror'].includes(c.kind))
+    .filter(c => c.enabled && ['convex-lens', 'concave-lens', 'plane-mirror', 'concave-mirror', 'convex-mirror'].includes(c.kind))
   const axisKeys = new Set<string>()
   const axes = axisComponents.filter(c => { const key = `${Math.round(c.angle * 10)}-${Math.round((c.y * Math.cos(c.angle * Math.PI / 180) - c.x * Math.sin(c.angle * Math.PI / 180)) * 10)}`; if (axisKeys.has(key)) return false; axisKeys.add(key); return true })
   const gridSize = camera.width > 600 ? 50 : camera.width > 200 ? 10 : 5
@@ -184,7 +185,7 @@ export function OpticsCanvas({ placement, onPlaced }: { placement: OpticsKind | 
       {scene.settings.showGrid && <rect {...view} fill={`url(#${id}-grid)`} pointerEvents="none" />}
       <g clipPath={`url(#${id}-clip)`}>
         {scene.settings.showAxis && (axes.length ? axes : [{ x: 50, y: 34, angle: 0, id: 'default-axis' }]).map(c => <g key={c.id} transform={`translate(${c.x} ${c.y}) rotate(${c.angle})`} pointerEvents="none"><line x1={-view.width * 3} x2={view.width * 3} y1="0" y2="0" stroke="#b5c4bb" strokeWidth="1" strokeDasharray="5 5" vectorEffect="non-scaling-stroke" /></g>)}
-        {scene.settings.showFoci && scene.components.filter(c => c.enabled && (c.kind === 'convex-lens' || c.kind === 'concave-lens')).map(c => <g key={`foci-${c.id}`} transform={`translate(${c.x} ${c.y}) rotate(${c.angle})`} pointerEvents="none">{[-2, -1, 1, 2].map(multiple => <g key={multiple} transform={`translate(${Math.abs(c.focalLength) * multiple} 0)`}><path d="M-.4 0H.4M0 -.4V.4" stroke="#7d9484" strokeWidth="1.1" vectorEffect="non-scaling-stroke" /><text y="2.3" textAnchor="middle" fill="#7d9484" fontSize="1.5" fontFamily="Inter, sans-serif">{Math.abs(multiple) === 2 ? '2F' : 'F'}</text></g>)}</g>)}
+        {scene.settings.showFoci && scene.components.filter(c => c.enabled && (c.kind === 'convex-lens' || c.kind === 'concave-lens' || isCurvedMirror(c))).map(c => <g key={`foci-${c.id}`} data-testid="optics-foci" data-component-id={c.id} transform={`translate(${c.x} ${c.y}) rotate(${c.angle})`} pointerEvents="none">{(isCurvedMirror(c) ? [-1, -2] : [-2, -1, 1, 2]).map(multiple => <g key={multiple} transform={`translate(${(isCurvedMirror(c) ? c.focalLength : Math.abs(c.focalLength)) * multiple} 0)`}><path d="M-.4 0H.4M0 -.4V.4" stroke="#7d9484" strokeWidth="1.1" vectorEffect="non-scaling-stroke" /><text y="2.3" textAnchor="middle" fill="#7d9484" fontSize="1.5" fontFamily="Inter, sans-serif">{Math.abs(multiple) === 2 ? isCurvedMirror(c) ? 'C = 2F' : '2F' : 'F'}</text></g>)}</g>)}
         {scene.components.map(c => {
           const selected = selectedId === c.id, bounds = opticalSymbolBounds(c)
           const labelY = bounds.y + bounds.height + 3

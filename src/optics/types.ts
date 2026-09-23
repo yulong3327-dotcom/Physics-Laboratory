@@ -1,5 +1,5 @@
 /** World coordinates and all lengths are centimetres; angles are degrees clockwise in SVG space. */
-export type OpticsKind = 'parallel-source' | 'point-source' | 'laser' | 'object' | 'convex-lens' | 'concave-lens' | 'plane-mirror' | 'screen' | 'aperture' | 'glass-slab' | 'prism'
+export type OpticsKind = 'parallel-source' | 'point-source' | 'laser' | 'object' | 'convex-lens' | 'concave-lens' | 'plane-mirror' | 'concave-mirror' | 'convex-mirror' | 'screen' | 'aperture' | 'glass-slab' | 'prism'
 
 export interface Vec2 { x: number; y: number }
 export interface OpticalComponent {
@@ -74,4 +74,6 @@ export interface ImageMeasurement {
   imageBase: Vec2 | null
   nature: 'real' | 'virtual' | 'infinity'
   caption?: string
+  /** Spherical-mirror Gaussian estimate; exact traced rays may show aberration. */
+  approximate?: boolean
 }

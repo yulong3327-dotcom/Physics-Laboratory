@@ -162,7 +162,7 @@ button, input, textarea { border-radius: 5px; }
 .recording-time { font-size: 10px; font-variant-numeric: tabular-nums; color: #a34b35; }
 .current-particles { pointer-events: none; }
 .simulation-controls.operating { color: #087f72; }
-.simulation-controls.short_circuit, .simulation-controls.error { color: #b6433e; }
+.simulation-controls.short_circuit, .simulation-controls.overload, .simulation-controls.error { color: #b6433e; }
 .physical-overlay { position: absolute; overflow: visible; pointer-events: none; max-width: none; }
 .physical-node .react-flow__handle.terminal { background: transparent; border-color: transparent; box-shadow: none; width: 10px; height: 10px; }
 .physical-node .react-flow__handle.terminal.is-connected { background: #747b7d; border: 2px solid #c5cbcc; box-shadow: 0 1px 2px #171c1d80, inset 0 0 0 1px #343a3b; }

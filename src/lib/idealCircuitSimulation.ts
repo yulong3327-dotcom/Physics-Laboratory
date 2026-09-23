@@ -44,8 +44,9 @@ export interface IdealCircuitSimulationResult {
   /** Different reference IDs denote floating islands; do not subtract their voltages. */
   terminalReferences: Record<string, string>;
   wireCurrents: Record<string, IdealQuantity>;
-  /** Algebraic sum of delivered battery currents, preserving correlated unknown currents. */
+  /** Magnitude at a unique two-terminal supply port; independent/multiple ports have no common total. */
   totalCurrent: IdealQuantity;
+  /** maxResidual is measured in the normalized equations used by the solver. */
   diagnostics: { islands: number; equations: number; rank: number; nullity: number; maxResidual: number };
   warnings: CircuitWarning[];
 }
@@ -66,6 +67,8 @@ interface IslandSolution {
   branchIndex: Map<string, number>;
   values: number[];
   nullspace: number[][];
+  voltageScale: number;
+  currentScale: number;
   inconsistent: boolean;
 }
 
@@ -82,7 +85,34 @@ class DisjointSets {
   join(a: string, b: string) { this.parents.set(this.find(b), this.find(a)); }
 }
 
-const defined = (value: number): IdealQuantity => ({ status: 'defined', value: Math.abs(value) < 1e-12 ? 0 : value });
+/** A conductive graph bridge must carry exactly zero current by KCL: it is
+ * the only branch crossing a cut, and there are no external current injections.
+ * Track parent branch IDs so parallel wires remain cycles, not false bridges. */
+function findBridgeBranches(branches: Branch[]): Set<string> {
+  const adjacent = new Map<string, { node: string; branchId: string }[]>();
+  for (const branch of branches) {
+    if (branch.open) continue;
+    adjacent.set(branch.from, [...(adjacent.get(branch.from) ?? []), { node: branch.to, branchId: branch.id }]);
+    adjacent.set(branch.to, [...(adjacent.get(branch.to) ?? []), { node: branch.from, branchId: branch.id }]);
+  }
+  const discovered = new Map<string, number>(), lowest = new Map<string, number>(), bridges = new Set<string>();
+  const visit = (node: string, parentBranch?: string) => {
+    const order = discovered.size;
+    discovered.set(node, order); lowest.set(node, order);
+    for (const edge of adjacent.get(node) ?? []) {
+      if (edge.branchId === parentBranch) continue;
+      if (!discovered.has(edge.node)) {
+        visit(edge.node, edge.branchId);
+        lowest.set(node, Math.min(lowest.get(node)!, lowest.get(edge.node)!));
+        if (lowest.get(edge.node)! > order) bridges.add(edge.branchId);
+      } else lowest.set(node, Math.min(lowest.get(node)!, discovered.get(edge.node)!));
+    }
+  };
+  for (const node of adjacent.keys()) if (!discovered.has(node)) visit(node);
+  return bridges;
+}
+
+const defined = (value: number): IdealQuantity => ({ status: 'defined', value: value === 0 ? 0 : value });
 const unknown = (reason: string): IdealQuantity => ({ status: 'indeterminate', reason });
 const inconsistent = (): IdealQuantity => ({ status: 'inconsistent', reason: '该连通电路的理想约束相互冲突，无有限直流解。' });
 function scale(quantity: IdealQuantity, factor: number): IdealQuantity {
@@ -200,6 +230,7 @@ export function simulateIdealCircuit(graph: CircuitGraph): IdealCircuitSimulatio
   }
   if (result.status === 'error') return result;
 
+  const bridgeBranches = findBridgeBranches(branches);
   const islands = new DisjointSets();
   endpoints.forEach(endpoint => islands.find(endpoint));
   branches.filter(branch => !branch.open).forEach(branch => islands.join(branch.from, branch.to));
@@ -219,19 +250,29 @@ export function simulateIdealCircuit(graph: CircuitGraph): IdealCircuitSimulatio
       const branchIndex = new Map(parts.map((branch, index) => [branch.id, nodeIndex.size + index]));
       const size = nodeIndex.size + parts.length;
       if (size > 900) throw new Error('单个连通电路超过 900 个理想方程，请拆分教学电路。');
-      const solution: IslandSolution = { reference, nodeIndex, branchIndex, values: [], nullspace: [], inconsistent: false };
+      // Solve in island-specific voltage/current units. Otherwise a perfectly
+      // finite small resistance produces a nearly singular matrix merely because
+      // amperes and volts have very different magnitudes.
+      const positiveResistances = parts.map(branch => branch.resistance).filter(value => value > 0);
+      const resistanceScale = positiveResistances.length
+        ? Math.exp((Math.log(Math.min(...positiveResistances)) + Math.log(Math.max(...positiveResistances))) / 2) : 1;
+      const voltageScale = Math.max(0, ...parts.map(branch => Math.abs(branch.emf))) || 1;
+      const currentScale = voltageScale / resistanceScale;
+      if (!Number.isFinite(currentScale) || currentScale === 0) throw new Error('电路参数数量级超出数值求解范围。');
+      const solution: IslandSolution = { reference, nodeIndex, branchIndex, values: [], nullspace: [], voltageScale, currentScale, inconsistent: false };
       solutions.set(island, solution);
       result.diagnostics.equations += size;
       if (!size) continue;
       const matrix = Matrix.zeros(size, size), rhs = new Array<number>(size).fill(0);
       const stamp = (row: number | undefined, column: number | undefined, value: number) => {
+        if (!Number.isFinite(value)) throw new Error('电路参数数量级超出数值求解范围。');
         if (row !== undefined && column !== undefined) matrix.set(row, column, matrix.get(row, column) + value);
       };
       for (const branch of parts) {
         const a = nodeIndex.get(branch.from), b = nodeIndex.get(branch.to), index = branchIndex.get(branch.id)!;
         stamp(a, index, 1); stamp(b, index, -1);
-        stamp(index, a, 1); stamp(index, b, -1); stamp(index, index, -branch.resistance);
-        rhs[index] = branch.emf;
+        stamp(index, a, 1); stamp(index, b, -1); stamp(index, index, -branch.resistance / resistanceScale);
+        rhs[index] = branch.emf / voltageScale;
       }
       // Row equilibration changes neither constraints nor their nullspace.
       for (let row = 0; row < size; row++) {
@@ -254,12 +295,38 @@ export function simulateIdealCircuit(graph: CircuitGraph): IdealCircuitSimulatio
           result.diagnostics.nullity++;
         }
       }
+      // Refinement removes cancellation error in small/zero currents before
+      // converting back to physical units (whose scale can be very large).
+      for (let iteration = 0; iteration < 3; iteration++) {
+        const correctionRhs = rhs.map((expected, row) => {
+          let calculated = 0;
+          for (let col = 0; col < size; col++) calculated += matrix.get(row, col) * solution.values[col];
+          return expected - calculated;
+        });
+        if (correctionRhs.every(value => value === 0)) break;
+        const correction = new Array<number>(size).fill(0);
+        for (let axis = 0; axis < size; axis++) {
+          if (singular[axis] <= tolerance) continue;
+          let projection = 0;
+          for (let row = 0; row < size; row++) projection += left.get(row, axis) * correctionRhs[row];
+          for (let row = 0; row < size; row++) correction[row] += right.get(row, axis) * projection / singular[axis];
+        }
+        for (let index = 0; index < size; index++) solution.values[index] += correction[index];
+      }
+      const solutionMagnitude = Math.max(...solution.values.map(Math.abs));
       for (let row = 0; row < size; row++) {
         let calculated = 0;
-        for (let col = 0; col < size; col++) calculated += matrix.get(row, col) * solution.values[col];
+        let calculationScale = Math.abs(rhs[row]);
+        for (let col = 0; col < size; col++) {
+          const coefficient = matrix.get(row, col);
+          calculated += coefficient * solution.values[col];
+          calculationScale += Math.abs(coefficient) * solutionMagnitude;
+        }
         const residual = Math.abs(calculated - rhs[row]);
         result.diagnostics.maxResidual = Math.max(result.diagnostics.maxResidual, residual);
-        if (!Number.isFinite(residual) || residual > 1e-8 * Math.max(1, Math.abs(rhs[row]))) solution.inconsistent = true;
+        // Roundoff follows the magnitudes of the quantities being added, not a
+        // fixed one-volt/one-ampere floor that hides small source conflicts.
+        if (!Number.isFinite(residual) || residual > Number.EPSILON * size * 128 * calculationScale) solution.inconsistent = true;
       }
       if (solution.inconsistent) warn('理想电源与零电阻通路的电压约束冲突，电路没有有限直流解；请检查短路或冲突电源。', source?.componentId, 'short_circuit', 'error');
     }
@@ -279,13 +346,19 @@ export function simulateIdealCircuit(graph: CircuitGraph): IdealCircuitSimulatio
     }
     let value = 0;
     for (const [index, coefficient] of coefficients) value += coefficient * solution.values[index];
-    return defined(value);
+    // Every observable here contains only node voltages or only branch currents,
+    // so the common scale leaves the nullspace uniqueness check above unchanged.
+    const firstIndex = coefficients.keys().next().value;
+    const quantityScale = firstIndex !== undefined && firstIndex < solution.nodeIndex.size ? solution.voltageScale : solution.currentScale;
+    return defined(value * quantityScale);
   };
   const linearCurrent = (parts: { branch: Branch; coefficient: number }[]): IdealQuantity => {
     const grouped = new Map<IslandSolution, Map<number, number>>();
     for (const { branch, coefficient } of parts) {
       if (branch.open) continue;
       const solution = solutions.get(islands.find(branch.from))!;
+      if (solution.inconsistent) return inconsistent();
+      if (bridgeBranches.has(branch.id)) continue;
       const index = solution.branchIndex.get(branch.id)!;
       const expression = grouped.get(solution) ?? new Map<number, number>();
       expression.set(index, (expression.get(index) ?? 0) + coefficient);
@@ -300,7 +373,10 @@ export function simulateIdealCircuit(graph: CircuitGraph): IdealCircuitSimulatio
     result.terminalVoltages[endpoint] = observe(solution, index === undefined ? new Map() : new Map([[index, 1]]));
   }
   for (const branch of branches) {
-    const voltage = idealVoltageBetween(result, branch.from, branch.to);
+    const terminalVoltage = idealVoltageBetween(result, branch.from, branch.to);
+    // Preserve exact ideal constraints (especially zero power with an arbitrary
+    // current) without rounding legitimate small voltages/currents to zero.
+    const voltage = !branch.open && branch.resistance === 0 && terminalVoltage.status === 'defined' ? defined(branch.emf) : terminalVoltage;
     const current = branch.open ? defined(0) : linearCurrent([{ branch, coefficient: 1 }]);
     result.branches[branch.id] = { from: branch.from, to: branch.to, ...(branch.componentId ? { componentId: branch.componentId } : {}), voltage, current, power: power(voltage, current) };
     if (!branch.componentId) result.wireCurrents[branch.id.slice('wire:'.length)] = current;
@@ -345,7 +421,41 @@ export function simulateIdealCircuit(graph: CircuitGraph): IdealCircuitSimulatio
     }
     result.components[component.id] = state;
   }
-  result.totalCurrent = linearCurrent(branches.filter(branch => branch.componentId && graph.components.find(component => component.id === branch.componentId)?.type === 'battery').map(branch => ({ branch, coefficient: -1 })));
+  const batteryIds = new Set(graph.components.filter(component => component.type === 'battery').map(component => component.id));
+  const sources = branches.filter(branch => branch.componentId && batteryIds.has(branch.componentId));
+  const supplyCurrent = (): IdealQuantity => {
+    if (!sources.length) return defined(0);
+    if (sources.some(source => solutions.get(islands.find(source.from))!.inconsistent)) return inconsistent();
+    const magnitude = (quantity: IdealQuantity) => quantity.status === 'defined' ? defined(Math.abs(quantity.value)) : quantity;
+    if (sources.length === 1) return magnitude(linearCurrent([{ branch: sources[0], coefficient: 1 }]));
+    // Wires, closed contacts and ideal ammeters form one supply node. Retain
+    // each source branch so parallel-source circulating currents can cancel in
+    // the symbolic expression for the current crossing the chosen supply port.
+    const supplyNodes = new DisjointSets();
+    for (const branch of branches) {
+      if (!branch.open && branch.resistance === 0 && branch.emf === 0 && !batteryIds.has(branch.componentId ?? '')) {
+        supplyNodes.join(branch.from, branch.to);
+      }
+    }
+    const sourceNodes = new Set(sources.flatMap(source => [supplyNodes.find(source.from), supplyNodes.find(source.to)]));
+    const sourceGroups = new DisjointSets();
+    for (const source of sources) sourceGroups.join(supplyNodes.find(source.from), supplyNodes.find(source.to));
+    if (new Set([...sourceNodes].map(node => sourceGroups.find(node))).size !== 1) {
+      return unknown('存在多个独立电源组，没有统一的总电流；请读取各电源或支路电流。');
+    }
+    const loads = branches.filter(branch => !branch.open && !batteryIds.has(branch.componentId ?? '')
+      && supplyNodes.find(branch.from) !== supplyNodes.find(branch.to));
+    const ports = sourceNodes.size === 2 ? [...sourceNodes] : [...sourceNodes].filter(node =>
+      sources.filter(source => supplyNodes.find(source.from) === node || supplyNodes.find(source.to) === node).length === 1
+      || loads.some(branch => supplyNodes.find(branch.from) === node || supplyNodes.find(branch.to) === node));
+    if (ports.length !== 2) return unknown('电源组没有唯一的两端供电端口，请读取各电源或支路电流。');
+    const port = ports[0];
+    return magnitude(linearCurrent(sources.flatMap(branch => [
+      ...(supplyNodes.find(branch.from) === port ? [{ branch, coefficient: 1 }] : []),
+      ...(supplyNodes.find(branch.to) === port ? [{ branch, coefficient: -1 }] : []),
+    ])));
+  };
+  result.totalCurrent = supplyCurrent();
   result.status = [...solutions.values()].some(solution => solution.inconsistent) ? 'inconsistent'
     : result.diagnostics.nullity > 0 || Object.values(result.components).some(component => [component.voltage, component.current, component.power, component.reading].some(quantity => quantity?.status === 'indeterminate')) ? 'indeterminate' : 'solved';
   if (result.diagnostics.nullity) warn('存在理想并联通路，部分支路或导线电流不能唯一确定；有唯一解的电压、电流仍可使用。', undefined, 'simulation_limit', 'info');
