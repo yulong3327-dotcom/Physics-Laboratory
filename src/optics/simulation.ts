@@ -1,5 +1,6 @@
 import type { ImageMeasurement, OpticalComponent, OpticsScene, OpticsSimulation, Vec2 } from './types'
 import { OPTICS_LIMITS, parseOpticsScene } from './library'
+import { isCurvedMirror, isMirror, mirrorFocalLength, mirrorSurface } from './mirrorGeometry'
 
 const EPSILON = 1e-7
 const OFFSET = 1e-5
@@ -46,6 +47,29 @@ function planeHit(origin: Vec2, direction: Vec2, c: OpticalComponent): SurfaceHi
   return { component: c, point, distance, normal: a.x, transverse }
 }
 
+function mirrorHit(origin: Vec2, direction: Vec2, c: OpticalComponent): SurfaceHit | null {
+  if (!isCurvedMirror(c)) {
+    const hit = planeHit(origin, direction, c)
+    return hit ? { ...hit, normal: scale(hit.normal, -1) } : null
+  }
+  const a = axes(c), o = local(c, origin)
+  const d = { x: dot(direction, a.x), y: dot(direction, a.y) }
+  const radius = 2 * mirrorFocalLength(c)
+  const b = (o.x + radius) * d.x + o.y * d.y
+  const discriminant = b * b - (o.x * o.x + 2 * radius * o.x + o.y * o.y)
+  if (discriminant < -EPSILON) return null
+  const root = Math.sqrt(Math.max(0, discriminant))
+  for (const distance of [-b - root, -b + root]) {
+    if (distance <= EPSILON) continue
+    const point = add(o, scale(d, distance))
+    // Keep the cap surrounding the vertex, not the opposite half of the sphere.
+    if (Math.sign(radius) * (point.x + radius) < -EPSILON || Math.abs(point.y) > c.height / 2 + EPSILON) continue
+    const n = mirrorSurface(c, point.y).frontNormal
+    return { component: c, point: world(c, point.x, point.y), distance, normal: add(scale(a.x, n.x), scale(a.y, n.y)), transverse: point.y }
+  }
+  return null
+}
+
 function polygonHit(origin: Vec2, direction: Vec2, shape: GlassShape): SurfaceHit | null {
   let closest: SurfaceHit | null = null
   for (let i = 0; i < shape.vertices.length; i++) {
@@ -88,9 +112,9 @@ function refracted(direction: Vec2, normal: Vec2, n1: number, n2: number): Vec2 
 function alignedLens(object: OpticalComponent, components: OpticalComponent[]): OpticalComponent | undefined {
   const objectAxis = axes(object).x
   return components.filter(c => {
+    if (isMirror(c)) return local(c, object).x < -EPSILON && dot(sub(c, object), objectAxis) > EPSILON
     if (!isLens(c)) return false
-    const l = local(c, object)
-    return Math.abs(l.y) < 0.05 && Math.abs(dot(objectAxis, axes(c).x)) > 0.99999 && dot(sub(c, object), objectAxis) > EPSILON
+    return Math.abs(dot(objectAxis, axes(c).x)) > 0.99999 && dot(sub(c, object), objectAxis) > EPSILON
   }).sort((a, b) => Math.hypot(a.x - object.x, a.y - object.y) - Math.hypot(b.x - object.x, b.y - object.y))[0]
 }
 
@@ -107,15 +131,21 @@ function sourceSeeds(components: OpticalComponent[]): Seed[] {
       const origin = source.kind === 'object' ? world(source, 0, -source.height) : { x: source.x, y: source.y }
       const lens = source.kind === 'object' ? alignedLens(source, components) : undefined
       if (lens) {
-        const l = local(lens, origin), distance = Math.abs(l.x), f = focalLength(lens), radius = lens.height / 2
+        const l = local(lens, origin), distance = Math.abs(l.x), f = isMirror(lens) ? mirrorFocalLength(lens) : focalLength(lens), radius = lens.height / 2
         // Parallel, central and front-focus rays. Replace a clipped principal ray with an aperture ray.
         const focusTarget = Math.abs(f - distance) > EPSILON ? f * l.y / (f - distance) : NaN
         const targets = [l.y, 0, focusTarget]
+        const usedTargets: number[] = []
         for (let i = 0; i < Math.min(3, source.rayCount); i++) {
-          const target = Number.isFinite(targets[i]) && Math.abs(targets[i]) <= radius ? targets[i] : (i === 0 ? -1 : 1) * radius * 0.9
-          push(source, origin, sub(world(lens, 0, target), origin))
+          const candidates = [targets[i], -radius * .9, radius * .9, radius * .45]
+          const target = candidates.find(value => Number.isFinite(value) && Math.abs(value) <= radius && usedTargets.every(used => Math.abs(used - value) > EPSILON))!
+          usedTargets.push(target)
+          push(source, origin, sub(world(lens, isMirror(lens) ? mirrorSurface(lens, target).point.x : 0, target), origin))
         }
-        for (let i = 3; i < source.rayCount; i++) push(source, origin, sub(world(lens, 0, radius * 1.8 * ((i - 2) / (source.rayCount - 1) - 0.5)), origin))
+        for (let i = 3; i < source.rayCount; i++) {
+          const target = radius * 1.8 * ((i - 2) / (source.rayCount - 1) - 0.5)
+          push(source, origin, sub(world(lens, isMirror(lens) ? mirrorSurface(lens, target).point.x : 0, target), origin))
+        }
       } else {
         for (let i = 0; i < source.rayCount; i++) {
           const angle = (source.rayCount === 1 ? 0 : source.spread * (i / (source.rayCount - 1) - 0.5)) * Math.PI / 180
@@ -140,14 +170,15 @@ function endAtBounds(origin: Vec2, direction: Vec2, bounds: ReturnType<typeof dr
   return add(origin, scale(direction, candidates.length ? Math.min(...candidates) : 300))
 }
 
-/** Sequential geometric tracing: paraxial thin lenses, exact plane reflection and Snell refraction. */
+/** Paraxial thin lenses, exact plane/spherical reflection and Snell refraction. */
 export function simulateOptics(input: OpticsScene): OpticsSimulation {
   const scene = parseOpticsScene(input), components = scene.components.filter(c => c.enabled)
   const result: OpticsSimulation = { segments: [], screenHits: [], warnings: [], emittedRays: 0 }
   const warnings = new Set<string>(), bounds = drawingBounds(components)
   const planes = components.filter(c => isLens(c) || c.kind === 'plane-mirror' || c.kind === 'screen' || c.kind === 'aperture')
+  const mirrors = components.filter(isCurvedMirror)
   const glass = components.filter(isGlass).map(component => ({ component, vertices: vertices(component) }))
-  const images = measureLensChains(components)
+  const images = [...measureLensChains(components), ...measureMirrorImages(components)]
   const imageByLens = new Map(images.map(image => [JSON.stringify([image.objectId, image.lensId]), image]))
   const seeds = sourceSeeds(components)
   if (seeds.length > OPTICS_LIMITS.maxTotalRays) warnings.add('光线较多，当前最多追踪 512 条光线。')
@@ -160,11 +191,12 @@ export function simulateOptics(input: OpticsScene): OpticsSimulation {
     const traversed: string[] = []
     for (let bounce = 0; bounce < OPTICS_LIMITS.maxInteractions; bounce++) {
       let closest: SurfaceHit | null = null
-      const planeHits = planes.flatMap(plane => { const hit = planeHit(origin, direction, plane); return hit ? [hit] : [] })
+      const planeHits = planes.flatMap(plane => { const hit = isMirror(plane) ? mirrorHit(origin, direction, plane) : planeHit(origin, direction, plane); return hit ? [hit] : [] })
       // A stop can share a plane with a lens. Check the stop and apply the lens
       // before advancing the ray, independently of component array order.
       const priority = (hit: SurfaceHit) => hit.component.kind === 'screen' ? 0 : hit.component.kind === 'aperture' ? 2 : 1
       for (const hit of planeHits) if (!closest || hit.distance < closest.distance - EPSILON || (Math.abs(hit.distance - closest.distance) < EPSILON && priority(hit) < priority(closest))) closest = hit
+      for (const mirror of mirrors) { const hit = mirrorHit(origin, direction, mirror); if (hit && (!closest || hit.distance < closest.distance)) closest = hit }
       for (const shape of glass) { const hit = polygonHit(origin, direction, shape); if (hit && (!closest || hit.distance < closest.distance)) closest = hit }
       if (!closest) { segment(seed.source, displayOrigin, endAtBounds(origin, direction, bounds)); break }
       const { component, point, normal, transverse } = closest
@@ -176,10 +208,21 @@ export function simulateOptics(input: OpticsScene): OpticsSimulation {
       }
       if (component.kind === 'aperture') {
         if (component.opening <= EPSILON || Math.abs(transverse) > component.opening / 2 + EPSILON) break
-      } else if (component.kind === 'plane-mirror') {
+      } else if (isMirror(component)) {
+        if (dot(direction, normal) > EPSILON) {
+          warnings.add('光线照到镜面背部（斜线侧），已被不透明背面阻挡；旋转镜面可改变反射朝向。')
+          break
+        }
         traversed.push(component.id)
         direction = reflected(direction, normal)
-        if (scene.settings.showVirtual) segment(seed.source, point, endAtBounds(point, scale(direction, -1), bounds), true)
+        const image = imageByLens.get(JSON.stringify([seed.source.id, component.id]))
+        if (scene.settings.showVirtual && (component.kind !== 'concave-mirror' || image?.nature === 'virtual')) {
+          // A spherical mirror has aberration. Reverse the actual reflected ray
+          // instead of forcing it through the paraxial image estimate.
+          const target = component.kind === 'plane-mirror' && previousOpticalInteractions === 0 && image?.imagePoint
+            ? image.imagePoint : endAtBounds(point, scale(direction, -1), bounds)
+          segment(seed.source, point, target, true)
+        }
         previousOpticalInteractions++
       } else if (isLens(component)) {
         traversed.push(component.id)
@@ -198,10 +241,18 @@ export function simulateOptics(input: OpticsScene): OpticsSimulation {
         previousOpticalInteractions++
       } else if (isGlass(component)) {
         traversed.push(component.id)
-        const before = mediumAt(add(point, scale(direction, -OFFSET)), glass), after = mediumAt(add(point, scale(direction, OFFSET)), glass)
+        // Sample across the surface normal: a grazing ray barely moves across
+        // the boundary when sampled along its direction.
+        const crossing = dot(direction, normal) > 0 ? normal : scale(normal, -1)
+        const before = mediumAt(add(point, scale(crossing, -OFFSET)), glass)
+        const after = mediumAt(add(point, scale(crossing, OFFSET)), glass)
         const transmitted = refracted(direction, normal, before, after)
         if (transmitted) direction = transmitted
-        else { direction = reflected(direction, normal); warnings.add('发生全反射：光线在介质内部继续传播。') }
+        else {
+          direction = reflected(direction, normal)
+          const criticalAngle = Math.asin(after / before) * 180 / Math.PI
+          warnings.add(`发生全反射：光线从折射率 ${before.toFixed(2)} 的介质射向 ${after.toFixed(2)} 的介质，入射角超过临界角 ${criticalAngle.toFixed(1)}°；此处没有折射光。`)
+        }
         previousOpticalInteractions++
       }
       displayOrigin = point
@@ -213,22 +264,64 @@ export function simulateOptics(input: OpticsScene): OpticsSimulation {
   return result
 }
 
-/** Successive images for coaxial lenses, including virtual objects and afocal stages. */
+/** Successive images for coaxial lenses, including off-axis objects and afocal stages. */
 export function measureImages(input: OpticsScene): ImageMeasurement[] {
-  return measureLensChains(parseOpticsScene(input).components.filter(c => c.enabled))
+  const components = parseOpticsScene(input).components.filter(c => c.enabled)
+  return [...measureLensChains(components), ...measureMirrorImages(components)]
+}
+
+/** Exact single-plane images; spherical readouts are explicitly paraxial estimates. */
+function measureMirrorImages(components: OpticalComponent[]): ImageMeasurement[] {
+  const mirrors = components.filter(isMirror)
+  if (mirrors.length !== 1 || components.some(c => isLens(c) || isGlass(c))) return []
+  const mirror = mirrors[0], measurements: ImageMeasurement[] = [], seeds = sourceSeeds(components)
+  for (const source of components.filter(c => ['object', 'point-source', 'parallel-source'].includes(c.kind))) {
+    const base = local(mirror, source), u = -base.x
+    if (u <= EPSILON) continue
+    if (isCurvedMirror(mirror) && dot(axes(source).x, axes(mirror).x) < .99999) continue
+    const illuminated = seeds.filter(seed => seed.source.id === source.id).some(seed => {
+      const hit = mirrorHit(seed.origin, seed.direction, mirror)
+      if (!hit || dot(seed.direction, hit.normal) >= -EPSILON) return false
+      return !components.some(c => {
+        if (c.kind !== 'screen' && c.kind !== 'aperture') return false
+        const stop = planeHit(seed.origin, seed.direction, c)
+        return stop && stop.distance < hit.distance + EPSILON && (c.kind === 'screen' || c.opening <= EPSILON || Math.abs(stop.transverse) > c.opening / 2 + EPSILON)
+      })
+    })
+    if (!illuminated) continue
+    const parallel = source.kind === 'parallel-source'
+    if (mirror.kind === 'plane-mirror') {
+      if (parallel) continue
+      const tip = local(mirror, source.kind === 'object' ? world(source, 0, -source.height) : source)
+      measurements.push({ lensId: mirror.id, objectId: source.id, objectDistance: u, imageDistance: -u, magnification: 1,
+        imageBase: world(mirror, -base.x, base.y), imagePoint: world(mirror, -tip.x, tip.y), nature: 'virtual', caption: '正立等大虚像' })
+      continue
+    }
+    const f = mirrorFocalLength(mirror), infinite = !parallel && Math.abs(u - f) < EPSILON
+    const v = infinite ? null : parallel ? f : f * u / (u - f), m = infinite || parallel ? null : -v! / u
+    const imageBase = v == null ? null : world(mirror, -v, parallel ? 0 : m! * base.y)
+    const tip = local(mirror, source.kind === 'object' ? world(source, 0, -source.height) : source)
+    const imagePoint = v == null ? null : world(mirror, -v, parallel ? 0 : m! * tip.y)
+    const nature = infinite ? 'infinity' : v! > 0 ? 'real' : 'virtual'
+    measurements.push({ lensId: mirror.id, objectId: source.id, objectDistance: parallel ? Infinity : u, imageDistance: v, magnification: m,
+      imageBase, imagePoint, nature, approximate: true, caption: `近轴估计 · ${infinite ? '像在无穷远' : `${nature === 'real' ? '实像' : '虚像'}`}` })
+  }
+  return measurements
 }
 
 function measureLensChains(components: OpticalComponent[]): ImageMeasurement[] {
   // Reflected and refracted paths still trace geometrically; this analytic
   // readout is reserved for a straight, common-axis train of thin lenses.
-  if (components.some(c => isGlass(c) || c.kind === 'plane-mirror')) return []
+  if (components.some(c => isGlass(c) || isMirror(c))) return []
   const measurements: ImageMeasurement[] = []
   for (const source of components.filter(c => ['object', 'point-source', 'parallel-source'].includes(c.kind))) {
     const axis = axes(source)
     const forward = components.filter(c => isLens(c) && local(source, c).x > EPSILON)
-    if (forward.some(c => Math.abs(local(source, c).y) > .05 || Math.abs(dot(axis.x, axes(c).x)) < .99999)) continue
     const lenses = forward.sort((a, b) => local(source, a).x - local(source, b).x)
     if (!lenses.length) continue
+    // A lens train shares its own axis; the object need not lie on that axis.
+    const firstLens = lenses[0]
+    if (lenses.some(c => Math.abs(dot(sub(c, firstLens), axis.y)) > .05 || Math.abs(dot(axis.x, axes(c).x)) < .99999)) continue
     const stopDistances = components.filter(c => c.kind === 'screen' || (c.kind === 'aperture' && c.opening <= EPSILON))
       .flatMap(c => { const hit = planeHit(source, axis.x, c); return hit ? [hit.distance] : [] })
     const stop = Math.min(Infinity, ...stopDistances)
@@ -237,6 +330,7 @@ function measureLensChains(components: OpticalComponent[]): ImageMeasurement[] {
     if (reachable.some((lens, index) => index > 0 && Math.abs(local(source, lens).x - local(source, reachable[index - 1]).x) < EPSILON)) continue
     const parallel = source.kind === 'parallel-source'
     const objectHeight = source.kind === 'object' ? -source.height : 0
+    const baseHeight = dot(sub(source, firstLens), axis.y)
     let a = 1, b = 0, c = 0, d = 1, position = 0
     for (const [index, lens] of reachable.entries()) {
       const lensPosition = local(source, lens).x, travel = lensPosition - position
@@ -253,7 +347,7 @@ function measureLensChains(components: OpticalComponent[]): ImageMeasurement[] {
       const nature: ImageMeasurement['nature'] = infinite ? 'infinity' : imageDistance! >= 0 ? 'real' : 'virtual'
       const nextDistance = index + 1 < reachable.length ? local(source, reachable[index + 1]).x - lensPosition : Infinity
       const intercepted = nature === 'real' && imageDistance! > nextDistance + EPSILON
-      const imageBase = infinite || intercepted ? null : add(lens, scale(axis.x, imageDistance!))
+      const imageBase = infinite || intercepted ? null : add(add(lens, scale(axis.x, imageDistance!)), scale(axis.y, parallel ? 0 : magnification! * baseHeight))
       const imagePoint = imageBase ? add(imageBase, scale(axis.y, parallel ? 0 : magnification! * objectHeight)) : null
       const prefix = index === reachable.length - 1 ? '最终' : reachable.length > 2 ? `第 ${index + 1} 级` : '中间'
       const caption = reachable.length > 1 || parallel

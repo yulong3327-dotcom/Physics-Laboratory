@@ -72,9 +72,11 @@ const ComponentNode = memo(function ComponentNode({ id, data, selected, isConnec
         onPointerDown={() => useCircuitStore.getState().beginHistoryTransaction()} onPointerUp={() => useCircuitStore.getState().endHistoryTransaction()} onBlur={() => useCircuitStore.getState().endHistoryTransaction()}
         onKeyDown={() => useCircuitStore.getState().beginHistoryTransaction()} onKeyUp={() => useCircuitStore.getState().endHistoryTransaction()}
         onChange={event => useCircuitStore.getState().updateComponentParameters(id, { sliderPosition: Number(event.target.value) / 100 })} />}
-      {data.simulation && <output className={`node-reading ${data.simulation.meterStatus || ''}`} data-testid="node-reading">
+      {data.simulation && <output className={`node-reading ${data.simulation.lampStatus === 'overload' ? 'overload' : data.simulation.meterStatus || ''}`} data-testid="node-reading">
         {data.simulation.unit ? `${parameters.meterMode === 'manual' ? '手动 ' : ''}${formatReading(parameters.meterMode === 'manual' ? parameters.manualReading : data.simulation.reading, data.simulation.unit)}`
-          : comp.type === 'lamp' ? `${Math.round(data.simulation.brightness * 100)}%` : ''}
+          : comp.type === 'lamp' ? data.simulation.lampStatus === 'overload'
+            ? `过载 ${formatReading(data.simulation.power, 'W')} / 额定 ${formatReading(data.simulation.ratedPower, 'W')}`
+            : `${Math.round(data.simulation.brightness * 100)}%` : ''}
       </output>}
       {comp.label && <span className="component-label" style={labelBeside ? { left: 'calc(100% + 12px)', top: 'auto', bottom: `calc(100% + ${9 + labelClearance}px)`, transform: 'none' } : labelClearance ? { bottom: `calc(100% + ${9 + labelClearance}px)` } : undefined}>{comp.label}</span>}
       {visual.terminals.map(term => {

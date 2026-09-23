@@ -29,7 +29,7 @@ export function solveWireCurrents(wires: Pick<CircuitConnection, 'id' | 'from' |
     const value = (node: string) => indices.has(node) ? solution.get(indices.get(node)!, 0) : 0
     for (const wire of net) {
       const current = value(wire.from) - value(wire.to)
-      result[wire.id] = Number.isFinite(current) && Math.abs(current) > 1e-9 ? current : 0
+      result[wire.id] = Number.isFinite(current) ? current : 0
     }
   }
   return result

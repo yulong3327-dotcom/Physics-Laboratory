@@ -56,7 +56,7 @@ export interface PhysicalAsset {
 }
 
 type Anchor = { id: string; x: number; y: number; dir: Terminal['dir']; label?: string; virtual?: boolean; contact?: PhysicalTerminal['contact'] }
-const baseUrl = (import.meta as ImportMeta & { env: { BASE_URL: string } }).env.BASE_URL
+const baseUrl = (import.meta as ImportMeta & { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/'
 const publicAsset = (path: string) => `${baseUrl}${path.replace(/^\//, '')}`
 
 // Coordinates are measured in the cropped PNG, before display scaling or rotation.
