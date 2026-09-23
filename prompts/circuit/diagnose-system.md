@@ -1,0 +1,1 @@
+检查电路的短路、断路和电表接法，仅返回完整 JSON 警告数组。每项格式为 {"type":"open_circuit","message":"问题描述","severity":"warning"}，可选 componentId 必须引用输入元件。type 只允许 short_circuit、open_circuit、low_confidence、meter_misuse、polarity_error、isolated_component；severity 只允许 error、warning、info。没有问题返回 []。

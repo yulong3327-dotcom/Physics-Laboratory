@@ -1,0 +1,131 @@
+.optics-lab { min-height:400px; }
+.optics-toolbar { gap:26px; min-height:66px; }
+.optics-workspace-tabs { margin-left:10px; }
+.optics-workspace-tabs > button { display:flex; align-items:center; gap:7px; padding:7px 12px; }
+.optics-header-note { color:#95a29a; font-size:11px; }
+.optics-run { margin-left:auto; min-width:100px; }
+.optics-run.is-active { color:#fff; background:var(--accent); border-color:var(--accent); }
+.optics-run.is-active:hover { background:#076e63; }
+.optics-actionbar { display:flex; align-items:center; gap:3px; min-height:48px; flex-shrink:0; padding:6px 16px; background:#fff; border-bottom:1px solid var(--rule); z-index:25; }
+.optics-actionbar .tool-group { padding:2px; }
+.optics-file-actions { display:flex; align-items:center; gap:4px; margin-left:auto; }
+.optics-presets { display:flex; align-items:center; gap:7px; margin-left:6px; color:#657b6e; }
+.optics-presets select { width:135px; font-size:12px; background:transparent; border:none; padding:6px 4px; cursor:pointer; }
+.optics-workspace { flex:1; min-height:0; display:flex; position:relative; overflow:hidden; }
+.optics-palette { width:194px; flex-shrink:0; background:#fff; border-right:1px solid var(--rule); display:flex; flex-direction:column; z-index:20; }
+.optics-palette-item { height:66px; gap:7px; padding:6px 5px; }
+.optics-palette-item.is-placing { background:#edf5f1; box-shadow:inset 2px 0 var(--accent); }
+.optics-palette-item > svg:first-child { overflow:visible; width:54px; height:48px; flex:0 0 54px; }
+.optics-palette-item > span { flex:1; min-width:0; font-size:11px; line-height:1.6; overflow-wrap:anywhere; }
+.optics-palette-item .palette-add { flex-shrink:0; }
+.optics-canvas-wrap { min-width:0; flex:1; display:flex; flex-direction:column; overflow:hidden; }
+.optics-canvas-head { min-height:43px; display:flex; justify-content:space-between; align-items:center; gap:12px; padding:0 18px; color:#96a099; font-size:10px; }
+.optics-canvas-head > span:first-child { display:flex; align-items:center; gap:8px; color:#667c6f; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.optics-canvas-surface { flex:1; min-height:0; position:relative; overflow:hidden; outline:none; background:#f8faf9; }
+.optics-svg { width:100%; height:100%; display:block; overflow:hidden; touch-action:none; user-select:none; }
+.optics-svg text { pointer-events:none; font-family:'Microsoft YaHei','PingFang SC',sans-serif; }
+.optics-symbol image { pointer-events:none; user-select:none; }
+.optics-ray-arrow { pointer-events:none; }
+.optics-svg [data-optics-id] { cursor:grab; outline:none; }
+.optics-svg [data-optics-id]:active { cursor:grabbing; }
+.optics-svg [data-optics-id]:focus-visible { outline:none; filter:drop-shadow(0 0 2px #087f72); }
+.optics-canvas-controls { position:absolute; right:18px; bottom:18px; display:flex; align-items:center; gap:2px; padding:4px; background:#fff; border:1px solid #dce4df; border-radius:6px; box-shadow:0 2px 6px #233c2c07; }
+.optics-canvas-controls button { display:inline-flex; align-items:center; justify-content:center; min-width:29px; min-height:29px; font-size:11px; color:#697c71; }
+.optics-canvas-controls button:hover { background:#edf5f1; }
+.optics-canvas-controls button[aria-pressed=true] { background:#edf5f1; color:var(--accent); }
+.optics-canvas-scale { position:absolute; left:20px; bottom:26px; display:flex; gap:12px; font-size:10px; color:#8f9e94; pointer-events:none; }
+.optics-control-divider { width:1px; height:17px; background:var(--rule); margin:0 4px; }
+.optics-zoom-value { width:40px; text-align:center; font-size:11px; color:#718779; }
+.optics-placement-hint { position:absolute; top:12px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:8px; max-width:calc(100% - 24px); padding:8px 12px; background:#fff; border:1px solid #caddd1; border-radius:5px; color:var(--accent); box-shadow:0 2px 8px #233c2c07; font-size:12px; }
+.optics-canvas-notice { position:absolute; left:18px; bottom:65px; max-width:calc(100% - 36px); padding:7px 10px; background:#fffdf1; border:1px solid #eee4c8; border-radius:4px; color:#947d40; font-size:11px; }
+.optics-canvas-paused { top:12px; bottom:auto; }
+.optics-canvas-warning { bottom:72px; font-size:10px; line-height:1.7; }
+.optics-properties { width:266px; flex-shrink:0; border-left:1px solid var(--rule); background:#fff; overflow-y:auto; z-index:20; }
+.optics-properties .property-content { padding:17px 16px; }
+.optics-property-title { margin-bottom:16px; gap:10px; min-height:62px; }
+.optics-property-title > svg { width:58px; height:60px; flex:0 0 58px; overflow:visible; }
+.optics-property-title > span { font-size:14px; }
+.optics-property-title small { display:block; font-size:10px; font-weight:400; color:#8c9a91; margin-top:4px; }
+.optics-description { font-size:12px; color:#829087; line-height:1.9; margin:0 0 18px; }
+.optics-field-heading { display:flex; justify-content:space-between; gap:8px; font-size:11px; font-weight:600; color:#647b6c; margin:22px 0 13px; }
+.optics-field-heading > span { font-size:10px; font-weight:400; color:#9aa59e; }
+.optics-field-note { font-size:10px; color:#8b988f; line-height:1.8; margin:6px 0 15px; }
+.optics-number-control { margin:13px 0; min-width:0; }
+.optics-number-control > label { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; color:#7e8d82; }
+.optics-number-input { display:flex; align-items:center; border:1px solid #dce3df; background:#fcfdfc; border-radius:4px; width:95px; }
+.optics-number-input input { width:100%; min-width:0; border:0; height:30px; text-align:right; background:transparent; padding:4px 5px; color:#354f3e; font-size:12px; font-variant-numeric:tabular-nums; }
+.optics-number-input small { flex-shrink:0; padding-right:7px; color:#97a298; font-size:10px; }
+.optics-number-control input[type=range] { width:100%; height:14px; accent-color:var(--accent); margin:10px 0 0; cursor:pointer; }
+.optics-coordinate-inputs { display:flex; gap:10px; }
+.optics-coordinate-inputs > div { flex:1; margin-top:0; }
+.optics-coordinate-inputs label { flex-direction:column; align-items:flex-start; gap:7px; }
+.optics-coordinate-inputs .optics-number-input { width:100%; }
+.optics-orientation-control { margin:10px 0 2px; }
+.optics-orientation-control > button { display:flex; align-items:center; justify-content:center; gap:5px; flex:1; }
+.optics-setting-row { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:33px; font-size:11px; color:#6f8477; }
+.optics-setting-row input { accent-color:var(--accent); cursor:pointer; }
+.optics-enable { margin-top:9px; }
+.optics-component-actions { display:flex; gap:6px; align-items:center; margin:20px 0; }
+.optics-component-actions .text-button { font-size:11px; gap:5px; padding:6px 8px; }
+.optics-component-actions .icon-button { margin-left:auto; }
+.optics-component-list { display:flex; flex-direction:column; gap:2px; }
+.optics-component-list > button { display:flex; justify-content:space-between; gap:10px; width:100%; padding:10px 5px; text-align:left; font-size:11px; border-bottom:1px solid #f1f4f2; }
+.optics-component-list > button:hover { background:#f1f7f3; }
+.optics-component-list > button > span:last-child { color:#96a39a; flex-shrink:0; font-size:10px; }
+.optics-component-list > button > span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.optics-measurements { border-top:1px solid var(--rule); margin-top:20px; }
+.optics-measurement-card { margin-bottom:12px; padding:12px; border:1px solid #dce8df; border-radius:5px; background:#f7faf8; }
+.optics-image-nature { display:flex; align-items:center; gap:7px; color:#36775b; font-size:12px; }
+.optics-image-nature b { font-weight:500; }
+.optics-measurement-card dl { margin:12px 0; font-size:11px; }
+.optics-measurement-card dl > div { display:flex; justify-content:space-between; padding:6px 0; }
+.optics-measurement-card dt { color:#8c9d91; }
+.optics-measurement-card dd { margin:0; font-variant-numeric:tabular-nums; color:#475f4f; }
+.optics-measurement-card dd small { font-size:9px; color:#9aa79f; margin-left:3px; }
+.optics-formula { border-top:1px solid #e5eee8; padding-top:10px; color:#738979; font-family:Georgia,'Times New Roman',serif; font-size:12px; }
+.optics-formula span { margin-left:18px; }
+.optics-settings { border-top:1px solid var(--rule); margin-top:20px; padding-top:17px; }
+.optics-settings summary { cursor:pointer; font-size:11px; color:#75897b; font-weight:600; }
+.optics-settings > div { margin-top:10px; }
+.optics-model-note { margin:20px 0 4px; color:#a0aaa4; font-size:10px; line-height:1.9; }
+.optics-status { gap:22px; }
+.optics-status .is-paused { background:#c49a52; }
+.optics-error { display:flex; align-items:center; gap:10px; justify-content:space-between; padding:5px 15px; background:#fff3f1; color:#a85043; font-size:12px; flex-shrink:0; }
+.optics-lab .optics-library-toggle, .optics-lab .optics-properties-toggle, .optics-panel-backdrop { display:none; }
+@media (max-width:1100px) {
+  .optics-header-note { display:none; }
+  .optics-toolbar { gap:16px; }
+  .optics-properties { display:none; position:absolute; right:0; top:0; bottom:0; width:276px; box-shadow:-5px 0 20px #263d3012; }
+  .optics-lab .optics-properties-toggle { display:inline-flex; }
+  .optics-show-properties .optics-properties { display:block; }
+  .optics-show-properties .optics-panel-backdrop { display:block; position:absolute; inset:0; background:#203e3020; border-radius:0; z-index:19; }
+  .optics-status-help { display:none; }
+}
+@media (max-width:700px) {
+  .optics-toolbar { flex-wrap:wrap; min-height:100px; gap:12px; padding:12px 14px; }
+  .optics-toolbar .brand { width:100%; }
+  .optics-toolbar .brand > span:first-of-type { font-size:16px; }
+  .optics-workspace-tabs { margin-left:0; }
+  .optics-workspace-tabs > button { padding:6px 8px; font-size:11px; }
+  .optics-run { min-width:88px; font-size:11px; padding:6px 8px; }
+  .optics-actionbar { padding:6px 8px; gap:1px; flex-wrap:wrap; }
+  .optics-actionbar .icon-button { width:28px; flex-basis:28px; height:29px; }
+  .optics-actionbar .control-divider { margin:0 3px; }
+  .optics-presets { gap:2px; margin-left:3px; }
+  .optics-presets select { width:95px; font-size:11px; }
+  .optics-file-actions { gap:1px; }
+  .optics-hide-small { display:none; }
+  .optics-lab .optics-library-toggle { display:inline-flex; }
+  .optics-palette { display:none; position:absolute; left:0; top:0; bottom:0; width:205px; box-shadow:5px 0 20px #263d3012; }
+  .optics-show-library .optics-palette { display:flex; }
+  .optics-show-library .optics-panel-backdrop { display:block; position:absolute; inset:0; background:#203e3020; border-radius:0; z-index:19; }
+  .optics-canvas-head { min-height:37px; padding:0 12px; }
+  .optics-canvas-head > span:first-child { font-size:11px; }
+  .optics-canvas-head > span:last-child { flex-shrink:0; font-size:9px; }
+  .optics-canvas-controls { right:10px; bottom:12px; }
+  .optics-canvas-scale { left:12px; bottom:60px; font-size:9px; }
+  .optics-status { padding:0 10px; gap:12px; font-size:9px; }
+  .optics-status .save-status { font-size:9px; max-width:105px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .optics-placement-hint { font-size:11px; white-space:nowrap; padding:5px 8px; }
+}
+@media (prefers-reduced-motion:reduce) { .optics-svg animateMotion { display:none; } }

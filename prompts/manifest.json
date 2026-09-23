@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "version": "1.0.0",
+  "prompts": {
+    "echo/parse-system": {
+      "version": "1.0.0",
+      "variables": []
+    },
+    "circuit/describe-system": {
+      "version": "1.0.0",
+      "variables": []
+    },
+    "circuit/diagnose-system": {
+      "version": "1.0.0",
+      "variables": []
+    },
+    "circuit/from-description-user": {
+      "version": "1.0.0",
+      "variables": [
+        "description"
+      ]
+    },
+    "circuit/recognize-real-user": {
+      "version": "1.0.0",
+      "variables": []
+    },
+    "circuit/recognize-schematic-user": {
+      "version": "1.0.0",
+      "variables": []
+    },
+    "circuit/recognize-system": {
+      "version": "1.0.0",
+      "variables": [
+        "componentTypeCount",
+        "physicalAssetReference",
+        "terminalReference"
+      ]
+    },
+    "circuit/verify-user": {
+      "version": "1.0.0",
+      "variables": [
+        "candidateGraph"
+      ]
+    },
+    "common/json-object-suffix": {
+      "version": "1.0.0",
+      "variables": []
+    },
+    "video/course-outline-user": {
+      "version": "1.0.0",
+      "variables": []
+    },
+    "video/course-outline": {
+      "version": "1.0.0",
+      "variables": []
+    },
+    "video/knowledge/storyboard-system": {
+      "version": "1.0.0",
+      "variables": [
+        "rolePrompt",
+        "switchPolicy",
+        "terminalReference"
+      ]
+    },
+    "video/knowledge/storyboard-user": {
+      "version": "1.0.0",
+      "variables": [
+        "projectJson"
+      ]
+    },
+    "video/problem/repair": {
+      "version": "1.0.0",
+      "variables": [
+        "feedback"
+      ]
+    },
+    "video/problem/system": {
+      "version": "1.0.0",
+      "variables": [
+        "rolePrompt"
+      ]
+    },
+    "video/problem/user": {
+      "version": "1.0.0",
+      "variables": [
+        "problemText"
+      ]
+    },
+    "video/problem-role-budget": {
+      "version": "1.0.0",
+      "variables": []
+    },
+    "video/problem-teacher-prefix": {
+      "version": "1.0.0",
+      "variables": []
+    },
+    "video/problem-teacher-suffix": {
+      "version": "1.0.0",
+      "variables": []
+    },
+    "video/roles/base": {
+      "version": "1.0.0",
+      "variables": []
+    },
+    "video/roles/preserve-dialogue": {
+      "version": "1.0.0",
+      "variables": []
+    },
+    "video/storyboard-section-context": {
+      "version": "1.0.0",
+      "variables": []
+    }
+  }
+}

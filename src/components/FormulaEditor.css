@@ -1,0 +1,22 @@
+.formula-editor { min-width: 0; border: 1px solid #d8e4e2; border-radius: 12px; padding: 12px; background: #fff; }
+.formula-editor-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-bottom: 9px; color: #274643; font-size: 13px; font-weight: 650; }
+.formula-editor-heading > span:last-child { color: #778783; font-size: 11px; font-weight: 400; }
+.formula-editor-tools { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 9px; }
+.formula-editor-tools button { display: grid; justify-items: center; min-width: 44px; min-height: 44px; padding: 5px 8px; border: 1px solid #d8e4e2; border-radius: 7px; background: #f6faf9; color: #24554d; cursor: pointer; }
+.formula-editor-tools button:hover { border-color: #0c8175; background: #ecf7f3; }
+.formula-editor-tools button:focus-visible, .formula-editor-advanced-toggle:focus-visible { outline: 2px solid #0c8175; outline-offset: 2px; }
+.formula-editor-tools button > span { font-family: Georgia, 'Times New Roman', serif; font-size: 19px; line-height: 1.1; }
+.formula-editor-tools small { font-size: 10px; line-height: 1.4; }
+.formula-editor-field { min-width: 0; }
+.formula-editor math-field { display: block; width: 100%; min-width: 0; min-height: 70px; padding: 10px 8px; border: 1px solid #c1d7d1; border-radius: 8px; background: #fff; color: #183b35; font-size: 24px; box-sizing: border-box; --caret-color: #0c8175; --selection-background-color: #c6e9dc; --contains-highlight-background-color: #eff7f3; }
+.formula-editor math-field:focus-within { outline: 2px solid #0c8175; outline-offset: 1px; }
+.formula-editor math-field::part(menu-toggle) { display: none; }
+.formula-editor math-field::part(virtual-keyboard-toggle) { color: #0c8175; }
+.formula-editor-hint { margin: 8px 0; font-size: 11px; line-height: 1.6; color: #75817e; }
+.formula-editor-preview { min-height: 40px; overflow-x: auto; padding: 3px 8px; color: #40504b; background: #fafcfb; border-radius: 6px; font-size: 13px; }
+.formula-editor-preview .katex-display { margin: 7px 0; }
+.formula-editor-preview [role=status] { display: block; padding: 8px 0; font-size: 12px; color: #82643c; }
+.formula-editor-advanced-toggle { border: 0; background: transparent; padding: 8px 0 0; color: #476c60; font-size: 11px; cursor: pointer; }
+.formula-editor-source { display: grid; gap: 5px; margin-top: 8px; font-size: 11px; color: #657a72; }
+.formula-editor-source textarea { width: 100%; box-sizing: border-box; resize: vertical; border: 1px solid #d3ddd8; border-radius: 6px; padding: 9px; font: 12px/1.6 Consolas, monospace; }
+@media (max-width: 600px) { .formula-editor { padding: 9px; } .formula-editor math-field { font-size: 22px; } .formula-editor-tools { gap: 4px; } }

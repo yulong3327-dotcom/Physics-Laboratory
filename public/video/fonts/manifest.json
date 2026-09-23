@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "sourceArchive": "模版5最新字体包.rar",
+  "syntheticTitle": true,
+  "title": {
+    "family": "FZLanTingYuanS-R-GB",
+    "requestedFamily": "方正兰亭圆简体-中粗",
+    "weight": 600,
+    "availableWeight": 400,
+    "synthetic": true,
+    "reason": "提供的字体包及本机字体目录中没有中粗字体文件；以常规字体合成600字重。"
+  },
+  "fonts": [
+    {
+      "id": "chinese",
+      "role": "chinese",
+      "file": "fz-lantingyuan-regular.ttf",
+      "woff2": "fz-lantingyuan-regular.woff2",
+      "families": [
+        "FZLanTingYuanS-R-GB",
+        "方正兰亭圆简体"
+      ],
+      "family": "FZLanTingYuanS-R-GB",
+      "subfamily": "Regular",
+      "postScriptName": "FZLANTY_JW--GB1-0",
+      "weight": 400,
+      "style": "normal",
+      "unitsPerEm": 256,
+      "embeddingFlags": 8,
+      "sha256": "cbf83a21900d2c97282443fd324e7d84212ab0a4826e8985455570dc29decccd",
+      "sourceFile": "方正兰亭圆简体.ttf"
+    },
+    {
+      "id": "latin",
+      "role": "latin",
+      "file": "stix-two-text-regular.ttf",
+      "woff2": "stix-two-text-regular.woff2",
+      "families": [
+        "STIX Two Text"
+      ],
+      "family": "STIX Two Text",
+      "subfamily": "Regular",
+      "postScriptName": "STIXTwoText",
+      "weight": 400,
+      "style": "normal",
+      "unitsPerEm": 1000,
+      "embeddingFlags": 0,
+      "sha256": "d522e89eb44396e5546fc7d4612818d89f0ea14891b7b531fe8ef2174498990a",
+      "sourceFile": "STIXTwoText.ttf"
+    },
+    {
+      "id": "latinItalic",
+      "role": "latinItalic",
+      "file": "stix-two-text-italic.ttf",
+      "woff2": "stix-two-text-italic.woff2",
+      "families": [
+        "STIX Two Text"
+      ],
+      "family": "STIX Two Text",
+      "subfamily": "Italic",
+      "postScriptName": "STIXTwoText-Italic",
+      "weight": 400,
+      "style": "italic",
+      "unitsPerEm": 1000,
+      "embeddingFlags": 0,
+      "sha256": "deeaa9e9165ded52406a79634d47922295caad1f6ee8b545ab2f1d03819b22f3",
+      "sourceFile": "STIXTwoText-Italic.ttf"
+    },
+    {
+      "id": "math",
+      "role": "math",
+      "file": "stix-two-math-regular.otf",
+      "woff2": "stix-two-math-regular.woff2",
+      "families": [
+        "STIX Two Math"
+      ],
+      "family": "STIX Two Math",
+      "subfamily": "Regular",
+      "postScriptName": "STIXTwoMath",
+      "weight": 400,
+      "style": "normal",
+      "unitsPerEm": 1000,
+      "embeddingFlags": 0,
+      "sha256": "08f36ccb36f13a8cae2943c39fc7e6a6dcace2dbf206697ba10fc7d871e87c20",
+      "sourceFile": "STIXTwoMath-Regular.otf"
+    }
+  ]
+}

@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 1,
+  "status": "reference-derived-layout-draft",
+  "canvas": {
+    "width": 1920,
+    "height": 1080
+  },
+  "sourceCanvas": {
+    "width": 2000,
+    "height": 1280
+  },
+  "conversion": {
+    "mode": "center-cover",
+    "uniformScale": 0.96,
+    "offsetX": 0,
+    "offsetY": -74.4,
+    "warning": "Do not stretch the 2000x1280 sources independently in x/y. The question file is a component specification sheet, not a full-screen template."
+  },
+  "safeArea": [
+    141.12,
+    123.36,
+    1637.76,
+    833.28
+  ],
+  "optionSafeArea": [
+    141.12,
+    835.68,
+    1633.92,
+    121.92
+  ],
+  "title": {
+    "bar": [
+      171.84,
+      154.08,
+      587.52,
+      63.36
+    ],
+    "minBarWidth": 257.28,
+    "paddingInline": 22,
+    "pin": [
+      164.16,
+      147.48,
+      33.54,
+      38.43
+    ],
+    "fontSize": 40.32,
+    "fill": "#4F80FF",
+    "textColor": "#FFFFFF",
+    "sourceTitleTextOutlined": true,
+    "dynamicWidth": true,
+    "referenceVariants": [
+      "title-reference.svg",
+      "title-reference-2.svg",
+      "title-reference-3.svg"
+    ]
+  },
+  "question": {
+    "meaning": "Reusable question/answer card with optional answer choices; its position and width are explicitly adjustable in the source.",
+    "sourceFontPostScript": "FZLANTY_ZHUNJW--GB1-0",
+    "fontSize": 42,
+    "bodyColor": "#333333",
+    "questionFill": "#DCF0FF",
+    "answerFill": "#FFFFFF",
+    "borderColor": "#8DD7FF",
+    "borderWidth": 5,
+    "singleLineQuestionHeight": 128,
+    "doubleLineQuestionHeight": 184,
+    "answerRowHeight": 128,
+    "suggestedElements": [
+      {
+        "id": "question-card",
+        "box": [
+          170,
+          300,
+          1580,
+          317
+        ],
+        "draggable": true
+      },
+      {
+        "id": "question-text",
+        "box": [
+          210,
+          330,
+          1500,
+          120
+        ],
+        "draggable": true
+      },
+      {
+        "id": "answer-choices",
+        "box": [
+          210,
+          500,
+          1500,
+          80
+        ],
+        "draggable": true
+      }
+    ],
+    "reference": "question-reference.svg"
+  },
+  "summary": {
+    "backgroundAsset": "/video/templates/summary-background.png",
+    "sourceFontPostScript": "FZLANTY_ZHONGCUJW--GB1-0",
+    "title": [
+      204.73,
+      165.25,
+      864.0,
+      40.32
+    ],
+    "contentArea": [
+      175.68,
+      219.36,
+      1562.88,
+      699.84
+    ],
+    "sourceContentArea": [
+      183,
+      306,
+      1628,
+      729
+    ],
+    "headingText": "Use actual script name; replace the default title.",
+    "contentLayout": "Source leaves the white panel empty; individual note/formula elements may be arranged or dragged within this area.",
+    "suggestedElements": [
+      {
+        "id": "summary-notes",
+        "box": [
+          205,
+          255,
+          750,
+          640
+        ],
+        "draggable": true
+      },
+      {
+        "id": "summary-formulas",
+        "box": [
+          1000,
+          255,
+          710,
+          640
+        ],
+        "draggable": true
+      }
+    ]
+  },
+  "immutableAssets": [
+    "/video/templates/summary-background.png",
+    "/video/templates/background-reference.png"
+  ],
+  "draftNotes": [
+    "The left/right split in suggestedElements is an implementation suggestion, not a rule in the AI source.",
+    "Original AI files are preserved under artifacts/template-reference/originals; the actual SVGs retain vector outlines.",
+    "Typography and positions must come from the shared Manim factory in production, not reflowed by browser fonts."
+  ]
+}

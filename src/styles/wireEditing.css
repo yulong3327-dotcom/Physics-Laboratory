@@ -1,0 +1,9 @@
+.wire-edit-controls { pointer-events: none; }
+.wire-segment-control { pointer-events: all; touch-action: none; outline: none; }
+.wire-segment-control.horizontal { cursor: ns-resize; }
+.wire-segment-control.vertical { cursor: ew-resize; }
+.wire-segment-control.free { cursor: move; }
+.wire-control-hit { fill: transparent; stroke: none; }
+.wire-control-mark { fill: #ffffff; stroke: #087f72; stroke-width: 1.5; }
+.wire-segment-control:hover .wire-control-mark,
+.wire-segment-control:focus-visible .wire-control-mark { fill: #c9ece4; stroke-width: 2; }

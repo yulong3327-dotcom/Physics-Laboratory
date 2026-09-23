@@ -1,0 +1,49 @@
+.tool-home { min-height: 100dvh; color: #243a38; background: #f6f8f7; }
+.tool-home-header { height: 72px; padding: 0 clamp(20px, 5vw, 78px); display: flex; align-items: center; justify-content: space-between; background: #fff; border-bottom: 1px solid #dde5e1; }
+.tool-home-brand { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; }
+.tool-home-mark { width: 36px; height: 36px; display: grid; place-items: center; color: #087f72; background: #e9f4ef; border: 1px solid #cfe5db; border-radius: 7px; }
+.tool-home-status { display: flex; align-items: center; gap: 7px; color: #6d8179; font-size: 12px; }
+.tool-home-status i { width: 7px; height: 7px; border-radius: 50%; background: #36a37a; }
+.tool-home-intro { max-width: 1280px; min-height: 270px; margin: 0 auto; padding: 70px clamp(20px, 5vw, 64px) 48px; display: flex; align-items: flex-end; justify-content: space-between; gap: 40px; }
+.tool-home-eyebrow { margin: 0 0 12px; color: #2c8a7e; font-family: Consolas, monospace; font-size: 11px; letter-spacing: 1.3px; }
+.tool-home-intro h1 { max-width: 680px; margin: 0; font-size: clamp(30px, 4vw, 48px); line-height: 1.2; font-weight: 700; }
+.tool-home-intro > div > p:last-child { max-width: 530px; margin: 17px 0 0; color: #73847e; font-size: 15px; line-height: 1.8; }
+.tool-home-spark { flex: 0 0 212px; display: flex; align-items: flex-start; gap: 10px; padding: 15px 0; color: #59716a; border-top: 1px solid #cfdcd6; font-size: 12px; line-height: 1.7; }
+.tool-home-spark svg { flex: 0 0 auto; color: #d88d31; }
+.tool-grid { max-width: 1280px; margin: 0 auto; padding: 0 clamp(20px, 5vw, 64px) 54px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.tool-card { min-height: 278px; display: grid; grid-template-columns: 142px minmax(0, 1fr); grid-template-rows: 1fr auto; gap: 4px 20px; padding: 24px; border: 1px solid #dce5e0; border-radius: 8px; background: #fff; overflow: hidden; transition: border-color .15s, box-shadow .15s, transform .15s; }
+.tool-card:hover { transform: translateY(-2px); border-color: #b8d4c7; box-shadow: 0 12px 28px #2a4b3c12; }
+.tool-card-visual { grid-row: 1 / span 2; position: relative; min-height: 176px; display: grid; place-items: center; overflow: hidden; border: 1px solid transparent; border-radius: 7px; }
+.tool-card-icon { z-index: 1; width: 78px; height: 78px; display: grid; place-items: center; border-radius: 7px; background: #fff; box-shadow: 0 8px 20px #284a3b12; }
+.tool-card-orbit { position: absolute; border: 1px solid currentColor; border-radius: 50%; opacity: .35; }
+.tool-card-orbit-one { width: 150px; height: 150px; }
+.tool-card-orbit-two { width: 96px; height: 96px; border-style: dashed; }
+.tool-card-body { min-width: 0; align-self: end; }
+.tool-card-body p { margin: 0 0 8px; color: #7b9087; font-size: 11px; }
+.tool-card-body h2 { margin: 0; color: #29423d; font-size: 20px; line-height: 1.35; }
+.tool-card-body > span { display: block; margin-top: 10px; color: #70827b; font-size: 12px; line-height: 1.8; }
+.tool-card button { grid-column: 2; justify-self: start; display: inline-flex; align-items: center; gap: 8px; padding: 8px 0; color: #237b6d; font-size: 12px; font-weight: 600; }
+.tool-card button:hover { color: #075f55; background: transparent; }
+.tool-card-mint .tool-card-visual { color: #168774; background: #ecf7f1; border-color: #d7ece0; }
+.tool-card-blue .tool-card-visual { color: #317aa6; background: #edf5f9; border-color: #d7e7ef; }
+.tool-card-amber .tool-card-visual { color: #b37425; background: #fff7e9; border-color: #f2e2bf; }
+.tool-card-coral .tool-card-visual { color: #bd6555; background: #fdf0ed; border-color: #f0d9d3; }
+.tool-home-footer { max-width: 1280px; margin: 0 auto; padding: 18px clamp(20px, 5vw, 64px); display: flex; justify-content: space-between; color: #93a19c; border-top: 1px solid #dde5e1; font-size: 11px; }
+@media (max-width: 760px) {
+  .tool-home-header { height: 62px; padding: 0 18px; }
+  .tool-home-brand { font-size: 14px; }
+  .tool-home-mark { width: 32px; height: 32px; }
+  .tool-home-status { font-size: 10px; }
+  .tool-home-intro { min-height: 0; padding: 48px 20px 36px; display: block; }
+  .tool-home-intro h1 { font-size: 31px; }
+  .tool-home-spark { margin-top: 27px; }
+  .tool-grid { grid-template-columns: 1fr; padding: 0 20px 34px; }
+  .tool-card { min-height: 220px; grid-template-columns: 104px minmax(0, 1fr); padding: 17px; gap: 4px 15px; }
+  .tool-card-visual { min-height: 140px; }
+  .tool-card-icon { width: 63px; height: 63px; }
+  .tool-card-icon svg { width: 34px; height: 34px; }
+  .tool-card-orbit-one { width: 125px; height: 125px; }
+  .tool-card-orbit-two { width: 78px; height: 78px; }
+  .tool-card-body h2 { font-size: 17px; }
+  .tool-home-footer { padding: 15px 20px; }
+}

@@ -1,0 +1,30 @@
+.video-batch-production { padding:18px 0; }
+.video-batch-production>h3 { margin:0 0 8px; font-size:18px; }
+.video-batch-production>p { font-size:13px; color:#657c76; line-height:1.7; }
+.video-batch-toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin:20px 0; }
+.video-batch-toolbar label { font-size:12px; display:grid; gap:6px; }
+.video-batch-toolbar select,.video-batch-toolbar>input { border:1px solid #dce6e4; border-radius:8px; padding:10px; background:white; font-size:13px; min-width:0; }
+.video-batch-toolbar>input { flex:1; min-width:160px; }
+.video-batch-projects { border-top:1px solid #dce6e4; border-bottom:1px solid #dce6e4; max-height:500px; overflow-y:auto; }
+.video-batch-project { display:flex; gap:12px; align-items:center; padding:16px; background:white; border-bottom:1px solid #e8eeec; }
+.video-batch-project:last-child { border-bottom:0; }
+.video-batch-project>input { width:18px; height:18px; accent-color:#148578; flex-shrink:0; }
+.video-batch-project>span { min-width:0; }
+.video-batch-project strong { font-size:14px; overflow-wrap:anywhere; }
+.video-batch-project small { display:block; color:#657c76; font-size:12px; margin-top:5px; }
+.video-batch-project-state { margin-left:auto; font-size:12px; color:#147d71; max-width:45%; }
+.video-batch-project.unavailable { background:#f7f9f8; }
+.video-batch-project.unavailable .video-batch-project-state { color:#657c76; }
+.video-batch-submit { display:flex; justify-content:flex-end; align-items:center; gap:15px; margin:18px 0; font-size:13px; }
+.video-batch-pending,.video-batch-receipt { border-left:3px solid #148578; background:#f0f9f4; padding:16px; margin-bottom:16px; font-size:13px; line-height:1.6; }
+.video-batch-receipt ul { list-style:none; padding:0; max-height:250px; overflow:auto; }
+.video-batch-receipt li { display:flex; flex-wrap:wrap; gap:8px; padding:7px 0; border-top:1px solid #d8e6e0; overflow-wrap:anywhere; }
+.video-batch-receipt li>span:first-child { font-weight:600; }
+.video-batch-receipt li a { color:#147d71; }
+@media(max-width:650px) {
+  .video-batch-toolbar>input { width:100%; flex-basis:100%; }
+  .video-batch-project { padding:12px; gap:9px; }
+  .video-batch-project-state { max-width:35%; font-size:11px; }
+  .video-batch-submit { justify-content:space-between; gap:8px; }
+  .video-batch-submit .video-button { font-size:12px; }
+}

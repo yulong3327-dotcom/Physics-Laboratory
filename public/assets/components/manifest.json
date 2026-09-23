@@ -1,0 +1,402 @@
+[
+  {
+    "number": 1,
+    "originalFilename": "codex-clipboard-7e386bc8-7131-47e3-9c95-1e85ec20c20a.png",
+    "archivedFile": "originals/01-switch-open.png",
+    "assetFile": "switch-open.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "16dcf1ae21a55a1ef65caedfd00f8d4537162fd99298ef74c35624c47dc66f35",
+    "duplicateOf": null,
+    "originalWidth": 160,
+    "originalHeight": 160,
+    "crop": {
+      "left": 16,
+      "top": 43,
+      "width": 127,
+      "height": 73
+    },
+    "transparentPixelCount": 20229,
+    "partialAlphaPixelCount": 4841
+  },
+  {
+    "number": 2,
+    "originalFilename": "codex-clipboard-5ea6c97f-0593-400f-9b42-a104bd2e8e9a.png",
+    "archivedFile": "originals/02-switch-closed.png",
+    "assetFile": "switch-closed.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "bf099b2a15c6bd4b2506cd3c77ac53d079bb1403d427e7d0d528c5100457e1b9",
+    "duplicateOf": null,
+    "originalWidth": 147,
+    "originalHeight": 64,
+    "crop": {
+      "left": 0,
+      "top": 0,
+      "width": 147,
+      "height": 63
+    },
+    "transparentPixelCount": 2637,
+    "partialAlphaPixelCount": 819
+  },
+  {
+    "number": 3,
+    "originalFilename": "codex-clipboard-82ec107f-9b79-41d4-af4c-b96e8e259db9.png",
+    "archivedFile": "originals/03-voltmeter.png",
+    "assetFile": "voltmeter.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "a8eb5eef68cd63da3fb7553b7ba5058aaf95282c600d79807025b7c379fa2b75",
+    "duplicateOf": null,
+    "originalWidth": 189,
+    "originalHeight": 189,
+    "crop": {
+      "left": 25,
+      "top": 10,
+      "width": 139,
+      "height": 174
+    },
+    "transparentPixelCount": 13171,
+    "partialAlphaPixelCount": 21704
+  },
+  {
+    "number": 4,
+    "originalFilename": "codex-clipboard-c8bd991b-40b6-44d2-8475-92ef5bd35b1a.png",
+    "archivedFile": "originals/04-ammeter.png",
+    "assetFile": "ammeter.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "a16ec307994b6c98a4ee484346a21ec3ca4a421f66ba9855da3e49a3eb083d42",
+    "duplicateOf": null,
+    "originalWidth": 191,
+    "originalHeight": 192,
+    "crop": {
+      "left": 25,
+      "top": 10,
+      "width": 139,
+      "height": 175
+    },
+    "transparentPixelCount": 13959,
+    "partialAlphaPixelCount": 21911
+  },
+  {
+    "number": 5,
+    "originalFilename": "codex-clipboard-8ca68f58-11da-41fe-9ac4-909418d59940.png",
+    "archivedFile": "originals/05-galvanometer.png",
+    "assetFile": "galvanometer.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "254385c46a8b3202cdad2d7e6e013d0eb560b9fe685ad7f774cb0be5ba882342",
+    "duplicateOf": null,
+    "originalWidth": 134,
+    "originalHeight": 173,
+    "crop": {
+      "left": 0,
+      "top": 0,
+      "width": 134,
+      "height": 173
+    },
+    "transparentPixelCount": 1898,
+    "partialAlphaPixelCount": 969
+  },
+  {
+    "number": 6,
+    "originalFilename": "codex-clipboard-8f035768-2c9d-418a-a16a-510607d6e23f.png",
+    "archivedFile": "originals/06-motor-fan.png",
+    "assetFile": "motor-fan.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "98070e0fb309a0e7c563fc80a6dd8f4690f85bde0ad691ef4dbc640ac695e581",
+    "duplicateOf": null,
+    "originalWidth": 124,
+    "originalHeight": 125,
+    "crop": {
+      "left": 0,
+      "top": 0,
+      "width": 124,
+      "height": 124
+    },
+    "transparentPixelCount": 4382,
+    "partialAlphaPixelCount": 1199
+  },
+  {
+    "number": 7,
+    "originalFilename": "codex-clipboard-9931fafc-022f-4b43-ba37-a76ee3f5da87.png",
+    "archivedFile": "originals/07-motor-bare.png",
+    "assetFile": "motor-bare.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "94b6672ab227a39843735199ba6395ea929b78bc2689eab58fefadad7857e864",
+    "duplicateOf": null,
+    "originalWidth": 130,
+    "originalHeight": 85,
+    "crop": {
+      "left": 0,
+      "top": 0,
+      "width": 129,
+      "height": 85
+    },
+    "transparentPixelCount": 3454,
+    "partialAlphaPixelCount": 506
+  },
+  {
+    "number": 8,
+    "originalFilename": "codex-clipboard-146184aa-b93d-4837-8665-5252f6a12091.png",
+    "archivedFile": "originals/08-switch-open.png",
+    "assetFile": "switch-open.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "16dcf1ae21a55a1ef65caedfd00f8d4537162fd99298ef74c35624c47dc66f35",
+    "duplicateOf": 1,
+    "originalWidth": 160,
+    "originalHeight": 160,
+    "crop": {
+      "left": 16,
+      "top": 43,
+      "width": 127,
+      "height": 73
+    },
+    "transparentPixelCount": 20229,
+    "partialAlphaPixelCount": 4841
+  },
+  {
+    "number": 9,
+    "originalFilename": "codex-clipboard-c10f5719-7868-4d89-ab55-7c43722b3266.png",
+    "archivedFile": "originals/09-switch-open.png",
+    "assetFile": "switch-open.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "16dcf1ae21a55a1ef65caedfd00f8d4537162fd99298ef74c35624c47dc66f35",
+    "duplicateOf": 1,
+    "originalWidth": 160,
+    "originalHeight": 160,
+    "crop": {
+      "left": 16,
+      "top": 43,
+      "width": 127,
+      "height": 73
+    },
+    "transparentPixelCount": 20229,
+    "partialAlphaPixelCount": 4841
+  },
+  {
+    "number": 10,
+    "originalFilename": "codex-clipboard-82772e81-1f1c-4de1-8b88-b21189a8034d.png",
+    "archivedFile": "originals/10-switch-spdt.png",
+    "assetFile": "switch-spdt.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "3b2215ce4cbe13a74de16cb8ed1b0262f7f6a7990814281af61413b4ebf8d0bd",
+    "duplicateOf": null,
+    "originalWidth": 136,
+    "originalHeight": 111,
+    "crop": {
+      "left": 0,
+      "top": 0,
+      "width": 136,
+      "height": 110
+    },
+    "transparentPixelCount": 7067,
+    "partialAlphaPixelCount": 816
+  },
+  {
+    "number": 11,
+    "originalFilename": "codex-clipboard-2ad87372-fcc6-4916-86cc-d534dea9ee36.png",
+    "archivedFile": "originals/11-battery-pack.png",
+    "assetFile": "battery-pack.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "41abdc51c8dbb925d3f434da067e224a7e2bc33a506398f2e5a487cd9439ca79",
+    "duplicateOf": null,
+    "originalWidth": 197,
+    "originalHeight": 197,
+    "crop": {
+      "left": 11,
+      "top": 75,
+      "width": 174,
+      "height": 47
+    },
+    "transparentPixelCount": 31746,
+    "partialAlphaPixelCount": 6637
+  },
+  {
+    "number": 12,
+    "originalFilename": "codex-clipboard-4c5747b0-a1ae-4415-8ee1-95e3c7c76c4f.png",
+    "archivedFile": "originals/12-lamp-bulb.png",
+    "assetFile": null,
+    "status": "archived",
+    "supersededBy": 15,
+    "sha256": "ad0ea74c43905a9db60c85cab288b6b57884e49c529c5b3ae484dfb0f5be2b18",
+    "duplicateOf": null,
+    "originalWidth": 58,
+    "originalHeight": 101,
+    "crop": {
+      "left": 0,
+      "top": 0,
+      "width": 58,
+      "height": 100
+    },
+    "transparentPixelCount": 1758,
+    "partialAlphaPixelCount": 343
+  },
+  {
+    "number": 13,
+    "originalFilename": "codex-clipboard-91ab2583-94f9-4b49-85e6-625b84c7bbb3.png",
+    "archivedFile": "originals/13-resistor.png",
+    "assetFile": "resistor.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "fbac1737bdc84f5a3fa85b5f034fe7ee56ba557ca200ccf1e3407496ba793642",
+    "duplicateOf": null,
+    "originalWidth": 196,
+    "originalHeight": 198,
+    "crop": {
+      "left": 9,
+      "top": 63,
+      "width": 178,
+      "height": 73
+    },
+    "transparentPixelCount": 27979,
+    "partialAlphaPixelCount": 10347
+  },
+  {
+    "number": 14,
+    "originalFilename": "codex-clipboard-c406193a-ebb0-42e0-bd88-cc154fed5412.png",
+    "archivedFile": "originals/14-rheostat.png",
+    "assetFile": "rheostat.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "3d42e6c5c9eda6c3d73ac3a0e7b6d3a42689817b06ac47d867e18b2140a929dd",
+    "duplicateOf": null,
+    "originalWidth": 220,
+    "originalHeight": 220,
+    "crop": {
+      "left": 8,
+      "top": 58,
+      "width": 206,
+      "height": 119
+    },
+    "transparentPixelCount": 36658,
+    "partialAlphaPixelCount": 10600
+  },
+  {
+    "number": 15,
+    "originalFilename": "灯泡关闭.png",
+    "archivedFile": "originals/15-lamp-bulb.png",
+    "assetFile": "lamp-bulb.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "2c0b4eebce4ca7da6d4af7c467423b7c4e094b0096b44e60804ebb4ad09c3fdc",
+    "duplicateOf": null,
+    "originalWidth": 336,
+    "originalHeight": 311,
+    "crop": {
+      "left": 0,
+      "top": 0,
+      "width": 336,
+      "height": 311
+    },
+    "transparentPixelCount": 44245,
+    "partialAlphaPixelCount": 1978
+  },
+  {
+    "number": 16,
+    "originalFilename": "灯泡点亮.png",
+    "archivedFile": "originals/16-lamp-on.png",
+    "assetFile": "lamp-on.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "871afb8ddc7f9dcbc1a72a8f7c9b3ec9dc49e542a2cd23b894383706e92227d8",
+    "duplicateOf": null,
+    "originalWidth": 306,
+    "originalHeight": 306,
+    "crop": {
+      "left": 0,
+      "top": 0,
+      "width": 306,
+      "height": 306
+    },
+    "transparentPixelCount": 38754,
+    "partialAlphaPixelCount": 2140
+  },
+  {
+    "number": 17,
+    "originalFilename": "codex-clipboard-82b710ce-5881-4ba3-bc1f-a885ce2bb2d3.png",
+    "archivedFile": "originals/17-battery-single.png",
+    "assetFile": "battery-single.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "1132255228c715902882e85d37db5928f862f4d4d04ebdbd64dd8aa15acebe50",
+    "duplicateOf": null,
+    "originalWidth": 119,
+    "originalHeight": 47,
+    "crop": {
+      "left": 0,
+      "top": 0,
+      "width": 118,
+      "height": 47
+    },
+    "transparentPixelCount": 1153,
+    "partialAlphaPixelCount": 380
+  },
+  {
+    "number": 18,
+    "originalFilename": "codex-clipboard-96d77b35-4eb9-4519-bb6d-8e1fe61a8334.png",
+    "archivedFile": "originals/18-power-supply.png",
+    "assetFile": "power-supply.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "cd9b11195c0aef18c382816e038346eeb7a052ee05b68bcea7c7548394c359d2",
+    "duplicateOf": null,
+    "originalWidth": 141,
+    "originalHeight": 108,
+    "crop": {
+      "left": 0,
+      "top": 0,
+      "width": 141,
+      "height": 107
+    },
+    "transparentPixelCount": 1496,
+    "partialAlphaPixelCount": 647
+  },
+  {
+    "number": 19,
+    "originalFilename": "codex-clipboard-10dc9ec9-8eee-4d65-bf12-2e394cf34720.png",
+    "archivedFile": "originals/19-potentiometer.png",
+    "assetFile": "potentiometer.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "4d55684ced27da0558ec7ed2876ea9dfc44989a96bb56c02ae0b8361dfa8dd48",
+    "duplicateOf": null,
+    "originalWidth": 86,
+    "originalHeight": 108,
+    "crop": {
+      "left": 0,
+      "top": 0,
+      "width": 85,
+      "height": 107
+    },
+    "transparentPixelCount": 3345,
+    "partialAlphaPixelCount": 500
+  },
+  {
+    "number": 20,
+    "originalFilename": "codex-clipboard-6edfb651-f671-4946-8290-066e09264040.png",
+    "archivedFile": "originals/20-buzzer.png",
+    "assetFile": "buzzer.png",
+    "status": "active",
+    "supersededBy": null,
+    "sha256": "d17c3da99d7319e6dbbd44c849cd6c4397cf8d7ee2243924849059ac14cdcf66",
+    "duplicateOf": null,
+    "originalWidth": 76,
+    "originalHeight": 82,
+    "crop": {
+      "left": 0,
+      "top": 0,
+      "width": 76,
+      "height": 82
+    },
+    "transparentPixelCount": 1337,
+    "partialAlphaPixelCount": 437
+  }
+]
