@@ -56,12 +56,14 @@ export interface PhysicalAsset {
 }
 
 type Anchor = { id: string; x: number; y: number; dir: Terminal['dir']; label?: string; virtual?: boolean; contact?: PhysicalTerminal['contact'] }
+const baseUrl = (import.meta as ImportMeta & { env: { BASE_URL: string } }).env.BASE_URL
+const publicAsset = (path: string) => `${baseUrl}${path.replace(/^\//, '')}`
 
 // Coordinates are measured in the cropped PNG, before display scaling or rotation.
 function defineAsset(id: string, type: ComponentType, name: string, sourceWidth: number, sourceHeight: number, width: number, anchors: Anchor[], options: Pick<PhysicalAsset, 'switchClosed' | 'connectionNote' | 'meterDial' | 'sliderVisual' | 'switchVisual' | 'lampVisual' | 'stateImages'> = {}): PhysicalAsset {
   const scale = width / sourceWidth
   return {
-    id, type, name, src: `/assets/components/${id}.png`, sourceWidth, sourceHeight,
+    id, type, name, src: publicAsset(`/assets/components/${id}.png`), sourceWidth, sourceHeight,
     width, height: sourceHeight * scale, ...options,
     terminals: anchors.map(anchor => ({
       id: anchor.id, label: anchor.label || componentLibrary[type].terminals.find(term => term.id === anchor.id)?.label,
@@ -87,13 +89,13 @@ export const physicalAssetList: PhysicalAsset[] = [
   defineAsset('switch-open', 'switch', '开关（断开）', 127, 73, 140, [
     { id: 'left', x: 14, y: 43, dir: 'left' }, { id: 'right', x: 96, y: 43, dir: 'right' },
   ], { switchClosed: false, switchVisual: {
-    baseSrc: '/assets/components/dynamic/switch-open-base.png', bladeSrc: '/assets/components/dynamic/switch-open-blade.png',
+    baseSrc: publicAsset('/assets/components/dynamic/switch-open-base.png'), bladeSrc: publicAsset('/assets/components/dynamic/switch-open-blade.png'),
     pivot: { x: 26, y: 27 }, openAngle: 0, closedAngle: 12, boundsTop: 0,
   } }),
   defineAsset('switch-closed', 'switch', '开关（闭合）', 147, 63, 140, [
     { id: 'left', x: 13, y: 29, dir: 'left' }, { id: 'right', x: 107, y: 29, dir: 'right' },
   ], { switchClosed: true, switchVisual: {
-    baseSrc: '/assets/components/dynamic/switch-closed-base.png', bladeSrc: '/assets/components/dynamic/switch-closed-blade.png',
+    baseSrc: publicAsset('/assets/components/dynamic/switch-closed-base.png'), bladeSrc: publicAsset('/assets/components/dynamic/switch-closed-blade.png'),
     pivot: { x: 29, y: 12 }, openAngle: -12, closedAngle: 0, boundsTop: -24,
   } }),
   defineAsset('switch-spdt', 'switch_spdt', '单刀双掷开关', 136, 110, 140, [
@@ -105,14 +107,14 @@ export const physicalAssetList: PhysicalAsset[] = [
     { id: 'left', x: 45, y: 182, dir: 'left', label: '左接线柱' },
     { id: 'right', x: 289, y: 184, dir: 'right', label: '右接线柱' },
   ], { lampVisual: {
-    baseSrc: '/assets/components/lamp-bulb.png', glowSrc: '/assets/components/dynamic/lamp-bulb-glow.png',
+    baseSrc: publicAsset('/assets/components/lamp-bulb.png'), glowSrc: publicAsset('/assets/components/dynamic/lamp-bulb-glow.png'),
     defaultBrightness: 0, fixedRegionTop: 164,
   } }),
   defineAsset('lamp-on', 'lamp', '小灯泡（点亮）', 306, 306, 140, [
     { id: 'left', x: 43, y: 183, dir: 'left', label: '左接线柱' },
     { id: 'right', x: 262, y: 183, dir: 'right', label: '右接线柱' },
   ], { lampVisual: {
-    baseSrc: '/assets/components/dynamic/lamp-on-base.png', glowSrc: '/assets/components/dynamic/lamp-on-glow.png',
+    baseSrc: publicAsset('/assets/components/dynamic/lamp-on-base.png'), glowSrc: publicAsset('/assets/components/dynamic/lamp-on-glow.png'),
     defaultBrightness: 1, fixedRegionTop: 164,
   } }),
   defineAsset('resistor', 'resistor', '定值电阻', 178, 73, 155, [
@@ -124,8 +126,8 @@ export const physicalAssetList: PhysicalAsset[] = [
     { id: 'c', x: 8, y: 15, dir: 'left', label: 'C 滑杆端' },
     { id: 'd', x: 196, y: 15, dir: 'right', label: 'D 滑杆端' },
   ], { connectionNote: 'C、D 为同一滑杆的两端。', sliderVisual: {
-    baseSrc: '/assets/components/dynamic/rheostat-base.png',
-    sliderSrc: '/assets/components/dynamic/rheostat-slider.png',
+    baseSrc: publicAsset('/assets/components/dynamic/rheostat-base.png'),
+    sliderSrc: publicAsset('/assets/components/dynamic/rheostat-slider.png'),
     left: 59, right: 147, top: 0, width: 30, height: 72,
   } }),
   defineAsset('potentiometer', 'potentiometer', '三端旋钮电位器', 85, 107, 95, [
@@ -149,7 +151,7 @@ export const physicalAssetList: PhysicalAsset[] = [
     { id: 'right', x: 68, y: 137, dir: 'bottom', label: '0.6 A', contact: 'binding-post' },
     { id: 'high', x: 108, y: 137, dir: 'bottom', label: '3 A', contact: 'binding-post' },
   ], { meterDial: {
-    baseSrc: '/assets/components/dynamic/ammeter-base.png', pivot: { x: 68, y: 78 },
+    baseSrc: publicAsset('/assets/components/dynamic/ammeter-base.png'), pivot: { x: 68, y: 78 },
     radius: 68, startAngle: -140, endAngle: -40, ranges: [0.6, 3], unit: 'A',
   } }),
   defineAsset('voltmeter', 'voltmeter', '电压表', 139, 174, 120, [
@@ -157,7 +159,7 @@ export const physicalAssetList: PhysicalAsset[] = [
     { id: 'left', x: 69, y: 137, dir: 'bottom', label: '3 V', contact: 'binding-post' },
     { id: 'high', x: 109, y: 137, dir: 'bottom', label: '15 V', contact: 'binding-post' },
   ], { meterDial: {
-    baseSrc: '/assets/components/dynamic/voltmeter-base.png', pivot: { x: 69, y: 78 },
+    baseSrc: publicAsset('/assets/components/dynamic/voltmeter-base.png'), pivot: { x: 69, y: 78 },
     radius: 68, startAngle: -140, endAngle: -40, ranges: [3, 15], unit: 'V',
   } }),
   defineAsset('galvanometer', 'galvanometer', '灵敏电流计', 134, 173, 110, [

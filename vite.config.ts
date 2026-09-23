@@ -7,6 +7,7 @@ import { createAIProxyPlugin } from './server/aiProxy'
 export default defineConfig(({ mode }) => {
   const env = { ...loadEnv(mode, process.cwd(), ''), ...process.env }
   return {
+    base: env.GITHUB_PAGES === 'true' ? '/Physics-Laboratory/' : '/',
     plugins: [react(), createAISessionPlugin(env), createAIProxyPlugin(env), {
       name: 'laboratory-assets',
       closeBundle: () => cp('public/assets', 'dist/assets', { recursive: true }),
