@@ -3,7 +3,7 @@ export type Phase = 'adjust' | 'observe' | 'answer' | 'done'
 export type LessonState = {
   version: 2; step: number; phase: Phase; equipment: number; height: number;
   u: number; screen: number; objectLocked: boolean; scanned: [number, number];
-  throughLens: boolean; records: RecordRow[];
+  throughLens: boolean; records: RecordRow[]; completedSteps: number[];
 }
 export const STORAGE_KEY = 'guided-optics.imaging.v2'
 export const trials = [
@@ -24,7 +24,7 @@ export const stepQuestions = [
 ]
 export const stepTypes = ['', '题型 1 · 对齐', '题型 2 · 测焦距', '题型 3 · 观察成像', '题型 4 · 比较大小', '题型 5 · 比较位置', '题型 6 · 焦点探究', '题型 7 · 虚像探究', '题型 8 · 归纳填表', '实验结论']
 export const emptyRow = (): RecordRow => ({ v: '', orientation: '', size: '', nature: '' })
-export const fresh = (): LessonState => ({ version: 2, step: 0, phase: 'adjust', equipment: 0, height: -2, u: 30, screen: 24, objectLocked: false, scanned: [24, 24], throughLens: false, records: trials.map(emptyRow) })
+export const fresh = (): LessonState => ({ version: 2, step: 0, phase: 'adjust', equipment: 0, height: -2, u: 30, screen: 24, objectLocked: false, scanned: [24, 24], throughLens: false, records: trials.map(emptyRow), completedSteps: [] })
 
 export function load(): LessonState {
   try {
@@ -32,13 +32,20 @@ export function load(): LessonState {
     if (!v || v.version !== 2 || !Number.isInteger(v.step) || v.step < 0 || v.step > 9 || !['adjust', 'observe', 'answer', 'done'].includes(v.phase)) return fresh()
     if (![v.u, v.screen, v.height, v.equipment].every(Number.isFinite) || v.u < 5 || v.u > 35 || v.screen < 5 || v.screen > 38 || Math.abs(v.height) > 3 || v.equipment < 0 || v.equipment > 3) return fresh()
     if (!Array.isArray(v.scanned) || v.scanned.length !== 2 || !v.scanned.every(Number.isFinite) || !Array.isArray(v.records) || v.records.length !== 5 || !v.records.every((r: RecordRow) => r && ['v', 'orientation', 'size', 'nature'].every(key => typeof r[key as keyof RecordRow] === 'string'))) return fresh()
-    return { ...fresh(), ...v }
+    const completedSteps = Array.isArray(v.completedSteps) ? v.completedSteps.filter((n: unknown) => Number.isInteger(n) && Number(n) >= 0 && Number(n) <= 8) : []
+    return { ...fresh(), ...v, completedSteps: [...new Set<number>(completedSteps)] }
   } catch { return fresh() }
 }
 
-export function nextState(s: LessonState): LessonState {
-  const step = Math.min(s.step + 1, 9)
-  return { ...s, step, phase: 'adjust', u: step >= 8 ? 30 : step === 7 ? 8 : 26, screen: step >= 8 ? 15 : 24, objectLocked: false, scanned: [24, 24], throughLens: false }
+export function selectStep(s: LessonState, target: number): LessonState {
+  const step = Math.max(0, Math.min(8, Math.trunc(target)))
+  const screen = step === 8 ? 15 : 24
+  return {
+    ...s, step, phase: step === 0 && s.equipment === 3 ? 'done' : 'adjust',
+    equipment: step === 0 ? s.equipment : 3, height: step === 1 ? -2 : 0,
+    u: step < 3 || step === 8 ? 30 : step === 7 ? 8 : 26,
+    screen, objectLocked: false, scanned: [screen, screen], throughLens: false,
+  }
 }
 
 export function taskText(step: number) {

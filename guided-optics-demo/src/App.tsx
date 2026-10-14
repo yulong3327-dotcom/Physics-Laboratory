@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowDownToLine, ArrowRight, Check, CheckCircle2, Eye, Focus, HelpCircle, Printer, RotateCcw, X } from 'lucide-react'
+import { ArrowDownToLine, ArrowRight, Check, CheckCircle2, ChevronDown, Eye, Focus, HelpCircle, Printer, RotateCcw, X } from 'lucide-react'
 import { Bench, ScreenStatus } from './Bench'
 import { MentorPrompt } from './MentorPrompt'
-import { downloadRecords, fresh, load, nextState, stepQuestions, stepTypes, STORAGE_KEY, taskText, titles, trials, wrongCells } from './lesson'
+import { downloadRecords, fresh, load, selectStep, stepQuestions, stepTypes, STORAGE_KEY, taskText, titles, trials, wrongCells } from './lesson'
 import type { LessonState, RecordRow } from './lesson'
 import { optics } from './model'
 import { introCue, useVoiceGuide } from './useVoiceGuide'
@@ -54,11 +54,18 @@ export default function App() {
     if (delay) cueTimer.current = window.setTimeout(speak, delay)
     else speak()
   }
-  function next() {
+  function jump(target: number) {
+    if (target === step) return
     if (cueTimer.current !== null) window.clearTimeout(cueTimer.current)
-    setState(nextState(s)); setChoice(null); setFeedback(''); setErrors([]); setHint(null)
-    voice.announce(introCue(Math.min(step + 1, 9)))
-    if (step === 7) setRecordView('table')
+    cueTimer.current = null
+    spoken.current = new Set([...spoken.current].filter(key => !key.startsWith(`${target}:`)))
+    setState(selectStep(s, target)); setChoice(null); setFeedback(''); setErrors([]); setHint(null); setReview(0)
+    voice.announce(introCue(target))
+    if (target === 8) setRecordView('table')
+  }
+  function next() { jump(Math.min(step + 1, 8)) }
+  function completeStep(values: Partial<LessonState> = {}) {
+    patch({ ...values, phase: 'done', completedSteps: [...new Set([...s.completedSteps, Math.min(step, 8)])] })
   }
   function moveObject(u: number) {
     patch({ u })
@@ -95,12 +102,12 @@ export default function App() {
       const message = step === 1 ? '再看实验台上的主光轴：要让像落在光屏中央，三个中心应如何排列？' : step === 2 ? '看最小光斑对应的刻度，读的是透镜到光屏的距离。' : trialIndex === 3 ? '光屏两端都没有清晰像，再观察出射光线是否交会。' : trialIndex === 4 ? '光屏接不到像；换到透镜右侧观察，比较方向和大小。' : '回看光屏正面，再与原始烛焰比较方向、大小和能否承接。'
       setFeedback(message); showHint(message, 'warn', step === 1 ? '24' : step === 2 ? '25' : trialIndex === 3 ? '27' : trialIndex === 4 ? '28' : '26'); return
     }
-    setFeedback(''); showHint('判断正确。可以进入下一步。', 'good', step >= 2 && step <= 6 ? '29' : undefined); patch({ phase: 'done' })
+    setFeedback(''); showHint('判断正确。可以进入下一步。', 'good', step >= 2 && step <= 6 ? '29' : undefined); completeStep()
   }
   function checkRecords() {
     const wrong = wrongCells(s.records); setErrors(wrong)
     if (wrong.length) { showHint(`还有 ${wrong.length} 个单元格需要修正。先回看对应物距下的光屏现象。`, 'warn', '31'); return }
-    patch({ step: 9, phase: 'done' }); showHint('记录核对完成，成像规律已经整理好。', 'good', '32')
+    completeStep({ step: 9 }); showHint('记录核对完成，成像规律已经整理好。', 'good', '32')
   }
   const taskFeedback = !isTrial ? '' : !s.objectLocked ? `目标物距 ${trial.u} cm，当前 ${s.u.toFixed(1)} cm` : trialIndex < 3 ? physics.focused ? '光屏轮廓清晰。现在比较像的方向与大小。' : '移动光屏，观察像的轮廓何时最清晰。' : trialIndex === 3 ? scanned ? '已比较近处和远处，观察光线是否交会。' : '分别检查光屏靠近与远离透镜时的画面。' : s.throughLens ? '透过透镜观察，再与原始烛焰比较。' : scanned ? '光屏各处都试过了，换一种观察方式。' : '先在导轨两端移动光屏，检查能否承接像。'
   const guidance = hint?.text || (step === 0 ? `先将${['蜡烛', '凸透镜', '光屏'][Math.min(s.equipment, 2)]}拖到虚线位置。` : s.phase === 'answer' ? '根据刚才看到的结果作答；不确定可以再观察。' : step === 1 ? '对照主光轴，调整烛焰中心高度。' : step === 2 ? '比较光斑大小，找到最小、最亮的位置。' : isTrial ? taskFeedback : '逐行回看现象，再填写实验记录。')
@@ -109,31 +116,42 @@ export default function App() {
   return <div className="app">
     <header className="topbar"><div className="brand"><span className="brand-mark"><Focus size={19}/></span><strong>物理实验室</strong><span className="course-title">凸透镜成像规律</span></div><div className="header-actions"><span className="save-note">{saved ? '进度已保存' : '暂未保存'}</span><button className="icon-button" onClick={() => voice.open ? setDialog('help') : voice.reopen()} title="查看步骤提示" aria-label="查看步骤提示"><HelpCircle size={18}/></button><button className="icon-button" onClick={() => setDialog('reset')} title="重新开始实验" aria-label="重新开始实验"><RotateCcw size={18}/></button></div></header>
     <main className="main">
-      <nav className="step-nav" aria-label="实验步骤"><span className="progress-caption">{String(Math.min(step + 1, 9)).padStart(2, '0')} / 09</span>{titles.slice(0, 9).map((title, i) => <span className={`step-tick ${i === step ? 'active' : ''} ${i < step ? 'done' : ''}`} key={title} title={title} aria-current={i === step ? 'step' : undefined}>{i < step ? <Check size={12}/> : i + 1}</span>)}<strong>{titles[step]}</strong></nav>
-      <div className="question-line"><span className="type-tag">{stepTypes[step] || '准备实验'}</span><h1>{step === 0 ? '按顺序摆放蜡烛、凸透镜与光屏。' : stepQuestions[step]}</h1></div>
+      <nav className="step-nav" aria-label="实验步骤">
+        <label className="step-select" htmlFor="lesson-step"><span>选择题型</span><select id="lesson-step" aria-label="选择实验题型" title={titles[step]} value={Math.min(step, 8)} onChange={e => jump(Number(e.target.value))}>{titles.slice(0, 9).map((title, i) => <option key={title} value={i}>{i === 0 ? '准备 · 摆放器材' : i >= 3 && i <= 7 ? `题型 ${i} · ${trials[i - 3].condition}` : stepTypes[i]}</option>)}</select><ChevronDown size={16} aria-hidden="true"/></label>
+        <div className="step-shortcuts">{titles.slice(0, 9).map((title, i) => <button className={`step-tick ${i === Math.min(step, 8) ? 'active' : ''} ${s.completedSteps.includes(i) ? 'done' : ''}`} key={title} title={`${i + 1}. ${title}`} aria-label={`跳转到${title}${s.completedSteps.includes(i) ? '，已完成' : ''}`} aria-current={i === Math.min(step, 8) ? 'step' : undefined} onClick={() => jump(i)}>{s.completedSteps.includes(i) ? <Check size={15}/> : i + 1}</button>)}</div>
+        <span className="progress-caption">{step === 9 ? '实验完成' : `${String(step + 1).padStart(2, '0')} / 09`}<span className="completion-count"> · 已完成 {s.completedSteps.length} 项</span></span>
+      </nav>
+      <div className="question-line"><span className="type-tag">{step === 0 ? '准备实验' : step === 9 ? stepTypes[step] : `题型 ${step}`}</span><h1>{step === 0 ? '按顺序摆放蜡烛、凸透镜与光屏。' : stepQuestions[step]}</h1></div>
       <div className="content-grid">
         <div className="left-workspace">
           {step >= 8 && <div className="view-switch" role="tablist" aria-label="实验工作区"><button role="tab" aria-selected={recordView === 'table'} onClick={() => setRecordView('table')}>记录表</button><button role="tab" aria-selected={recordView === 'bench'} onClick={() => setRecordView('bench')}>回看光路</button></div>}
-          {(step < 8 || recordView === 'bench') ? <><Bench state={viewing} onPlace={() => { if (step === 0 && s.equipment < 3) { patch({ equipment: s.equipment + 1, phase: s.equipment === 2 ? 'done' : 'adjust' }); showHint(s.equipment === 2 ? '三件器材已就位。下一步调整三心同高。' : `已放好${['蜡烛', '凸透镜'][s.equipment]}，继续放置下一件。`, 'good', s.equipment === 2 ? '03' : undefined) } }} onMisplace={() => showHint('还没放到圆形目标处。沿导轨拖到虚线器材位置后松手。', 'warn', '02')} onObject={moveObject} onScreen={moveScreen} onHeight={moveHeight}/>{step >= 8 && <div className="review-tabs" role="tablist" aria-label="回看实验">{trials.map((t, i) => <button role="tab" aria-selected={review === i} onClick={() => setReview(i)} key={t.u}>{t.condition}</button>)}</div>}</> : <RecordTable step={step} records={s.records} errors={errors} updateRow={updateRow} checkRecords={checkRecords}/>}
+          {(step < 8 || recordView === 'bench') ? <><Bench state={viewing} onPlace={() => { if (step === 0 && s.equipment < 3) { if (s.equipment === 2) completeStep({ equipment: 3 }); else patch({ equipment: s.equipment + 1 }); showHint(s.equipment === 2 ? '三件器材已就位。下一步调整三心同高。' : `已放好${['蜡烛', '凸透镜'][s.equipment]}，继续放置下一件。`, 'good', s.equipment === 2 ? '03' : undefined) } }} onMisplace={() => showHint('还没放到圆形目标处。沿导轨拖到虚线器材位置后松手。', 'warn', '02')} onObject={moveObject} onScreen={moveScreen} onHeight={moveHeight}/>{step >= 8 && <div className="review-tabs" role="tablist" aria-label="回看实验">{trials.map((t, i) => <button role="tab" aria-selected={review === i} onClick={() => setReview(i)} key={t.u}>{t.condition}</button>)}</div>}</> : <RecordTable step={step} records={s.records} errors={errors} updateRow={updateRow} checkRecords={checkRecords}/>}
           <MentorPrompt guide={voice} detail={guidance} tone={hint?.tone || 'tip'}/>
         </div>
         <div className="right-workspace"><ScreenStatus state={viewing}/><aside className="action-panel" aria-label="当前步骤操作"><div className="panel-index"><span>{s.phase === 'answer' ? '观察后判断' : s.phase === 'done' ? '本步已完成' : s.phase === 'observe' ? '先观察结果' : '当前操作'}</span><strong>{String(Math.min(step + 1, 9)).padStart(2, '0')}</strong></div>
           {step < 8 && <div className="phase-indicators"><span className={s.phase === 'adjust' ? 'current' : 'passed'}>操作</span><span className={s.phase === 'observe' ? 'current' : s.phase === 'answer' || s.phase === 'done' ? 'passed' : ''}>观察</span><span className={s.phase === 'answer' ? 'current' : s.phase === 'done' ? 'passed' : ''}>判断</span></div>}
-          {s.phase === 'done' && step < 8 ? <div className="panel-content"><div className="step-success"><CheckCircle2 size={19}/><strong>{step === 0 ? '器材已就位' : '本题完成'}</strong></div><p>{step === 0 ? '接下来调整三心同高。' : step === 1 ? '三个中心在同一高度，便于让像落在光屏中央。' : step === 2 ? '最小光斑距透镜 10 cm，焦距 f = 10 cm。' : `${trial.condition}：${trial.nature === '不成有限远像' ? trial.nature : `${trial.orientation}、${trial.size}的${trial.nature}`}。`}</p><button className="primary-button" onClick={next}>进入下一步 <ArrowRight size={16}/></button></div> : s.phase === 'answer' && step < 8 ? <div className="panel-content"><p className="action-prompt">{stepQuestions[step]}</p><div className="answer-options">{choices.map((text, i) => <button key={text} aria-pressed={choice === i} className={choice === i ? 'selected' : ''} onClick={() => { setChoice(i); setFeedback('') }}><span>{String.fromCharCode(65 + i)}</span>{text}</button>)}</div>{feedback && <p className="answer-feedback" role="alert">{feedback}</p>}<button className="primary-button" disabled={choice === null} onClick={checkAnswer}>确认判断 <Check size={16}/></button><button className="secondary-button" onClick={() => { patch({ phase: 'observe' }); setFeedback('') }}><Eye size={15}/> 再观察一下</button></div> : <div className="panel-content"><p className="action-prompt">{s.phase === 'observe' ? '先看实验结果，再决定答案。' : taskText(step)}</p>
+          {s.phase === 'done' && step < 8 ? <div className="panel-content"><div className="step-success"><CheckCircle2 size={19}/><strong>{step === 0 ? '器材已就位' : '本题完成'}</strong></div><p>{step === 0 ? '接下来调整三心同高。' : step === 1 ? '三个中心在同一高度，便于让像落在光屏中央。' : step === 2 ? '最小光斑距透镜 10 cm，焦距 f = 10 cm。' : `${trial.condition}：${trial.nature === '不成有限远像' ? trial.nature : `${trial.orientation}、${trial.size}的${trial.nature}`}。`}</p></div> : s.phase === 'answer' && step < 8 ? <div className="panel-content"><p className="action-prompt">{stepQuestions[step]}</p><div className="answer-options">{choices.map((text, i) => <button key={text} aria-pressed={choice === i} className={choice === i ? 'selected' : ''} onClick={() => { setChoice(i); setFeedback('') }}><span>{String.fromCharCode(65 + i)}</span>{text}</button>)}</div>{feedback && <p className="answer-feedback" role="alert">{feedback}</p>}<button className="secondary-button" onClick={() => { patch({ phase: 'observe' }); setFeedback('') }}><Eye size={15}/> 再观察一下</button></div> : <div className="panel-content"><p className="action-prompt">{s.phase === 'observe' ? '先看实验结果，再决定答案。' : taskText(step)}</p>
             {step === 0 && <div className="equipment-list">{['蜡烛', '凸透镜', '光屏'].map((name, i) => <span className={s.equipment > i ? 'checked' : ''} key={name}>{s.equipment > i ? <Check size={13}/> : i + 1} {name}</span>)}</div>}
             {step === 1 && <><label className="control-label" htmlFor="height">烛焰中心偏移 <strong>{s.height.toFixed(1)} cm</strong></label><input id="height" className="aim-slider" aria-label="调节火焰高度" type="range" min="-3" max="3" step="0.5" value={s.height} disabled={s.phase !== 'adjust'} onChange={e => moveHeight(Number(e.target.value))}/><div className={`alignment ${s.height === 0 ? 'ready' : ''}`}>{s.height === 0 ? '三个中心已对齐' : '让烛焰中心落在主光轴上'}</div></>}
-            {isTrial && <><label className="control-label" htmlFor="object-distance">物距 u <strong>{s.u.toFixed(1)} cm</strong></label><input id="object-distance" className="aim-slider" aria-label="调节蜡烛与透镜的距离" type="range" min="5" max="35" step="0.5" value={s.u} disabled={s.objectLocked || s.phase !== 'adjust'} onChange={e => moveObject(Number(e.target.value))}/>{!s.objectLocked && <button className="secondary-button" disabled={s.u !== trial.u} onClick={() => { patch({ objectLocked: true, scanned: [s.screen, s.screen] }); showHint('物距已固定。移动光屏观察画面如何变化。', 'good', '14') }}>确认物距 <Check size={15}/></button>}</>}
+            {isTrial && !s.objectLocked && <><label className="control-label" htmlFor="object-distance">物距 u <strong>{s.u.toFixed(1)} cm</strong></label><input id="object-distance" className="aim-slider" aria-label="调节蜡烛与透镜的距离" type="range" min="5" max="35" step="0.5" value={s.u} disabled={s.phase !== 'adjust'} onChange={e => moveObject(Number(e.target.value))}/></>}
             {(step === 2 || isTrial && s.objectLocked) && !s.throughLens && <><label className="control-label" htmlFor="screen-distance">光屏距透镜 <strong>{s.screen.toFixed(1)} cm</strong></label><input id="screen-distance" className="aim-slider" aria-label="调节光屏距透镜的距离" type="range" min="5" max="38" step="0.5" value={s.screen} disabled={s.phase !== 'adjust'} onChange={e => moveScreen(Number(e.target.value))}/><div className="range-labels"><span>靠近透镜</span><span>远离透镜</span></div></>}
             {(step === 2 || isTrial) && <div className={`alignment ${canObserve ? 'ready' : ''}`}>{s.phase === 'observe' ? '看光屏或观察窗中的结果，再开始判断。' : step === 2 ? physics.focused ? '光斑最小、最亮。' : '比较光斑大小，继续移动。' : taskFeedback}</div>}
-            {isTrial && trialIndex === 4 && s.objectLocked && !s.throughLens && <button className="secondary-button" disabled={!scanned} onClick={() => { patch({ throughLens: true }); showHint('现在看透镜右侧的视野：像是正立还是倒立？', 'good', '22') }}><Eye size={15}/> 移开光屏，透过透镜观察</button>}
-            {step === 1 || step === 2 || isTrial ? <><button className="primary-button" disabled={!canObserve} onClick={() => { if (s.phase === 'adjust') { patch({ phase: 'observe' }); showHint('先观察左侧光路和右上角光屏状态，再进入判断。', 'tip', '23') } else { patch({ phase: 'answer' }); setChoice(null); setHint(null) } }}>{s.phase === 'observe' ? '已观察，开始判断' : '确认位置，观察结果'} <ArrowRight size={16}/></button>{s.phase === 'observe' && <button className="secondary-button" onClick={() => patch({ phase: 'adjust' })}><RotateCcw size={15}/> 继续调整</button>}</> : null}
+            {s.phase === 'observe' && step < 8 && <button className="secondary-button" onClick={() => patch({ phase: 'adjust' })}><RotateCcw size={15}/> 继续调整</button>}
             {step === 8 && <><p>选择一行物距，对照光路填写像距、正倒、大小和虚实。</p>{recordView === 'bench' && <button className="primary-button" onClick={() => setRecordView('table')}>返回记录表 <ArrowRight size={16}/></button>}</>}
             {step === 9 && <><div className="step-success"><CheckCircle2 size={20}/> 探究完成</div><button className="primary-button" onClick={downloadRecords}><ArrowDownToLine size={16}/> 下载实验表格</button><button className="secondary-button" onClick={() => window.print()}><Printer size={16}/> 打印实验记录</button></>}
           </div>}
+          {step < 8 && (s.phase === 'done' ? <NextAction ready note="本步完成，继续下一步" onClick={next} label="进入下一步"/> : s.phase === 'answer' ? <NextAction disabled={choice === null} onClick={checkAnswer} label="确认判断"/> : isTrial && !s.objectLocked ? <NextAction ready={s.u === trial.u} disabled={s.u !== trial.u} note="物距已到位，点这里确认" label="确认物距" onClick={() => { patch({ objectLocked: true, scanned: [s.screen, s.screen] }); showHint('物距已固定。移动光屏观察画面如何变化。', 'good', '14') }}/> : isTrial && trialIndex === 4 && !s.throughLens ? <NextAction ready={scanned} disabled={!scanned} note="光屏两端已检查，换个视角" label="移开光屏，透过透镜观察" onClick={() => { patch({ throughLens: true }); showHint('现在看透镜右侧的视野：像是正立还是倒立？', 'good', '22') }}/> : step > 0 ? <NextAction ready={canObserve} disabled={!canObserve} note={s.phase === 'observe' ? '观察好了？接着来判断' : step === 6 ? '两端已检查，观察结果吧' : '位置已调好，观察结果吧'} label={s.phase === 'observe' ? '已观察，开始判断' : '确认位置，观察结果'} onClick={() => { if (s.phase === 'adjust') { patch({ phase: 'observe' }); showHint('先观察左侧光路和右上角光屏状态，再进入判断。', 'tip', '23') } else { patch({ phase: 'answer' }); setChoice(null); setHint(null) } }}/> : null)}
         </aside></div>
       </div>
     </main>
     <dialog ref={dialogRef} className="guide-dialog" onCancel={() => setDialog(null)}><button className="dialog-close" onClick={() => setDialog(null)} aria-label="关闭弹窗"><X size={18}/></button><h2>{dialog === 'reset' ? '重新开始实验？' : titles[step]}</h2><p>{dialog === 'reset' ? '将清空当前步骤进度和填写的记录表。' : taskText(step)}</p>{dialog === 'help' && <div className="dialog-note">{guidance}</div>}<button className="primary-button" onClick={dialog === 'reset' ? restart : () => setDialog(null)}>{dialog === 'reset' ? '确认重新开始' : '继续实验'} <ArrowRight size={16}/></button></dialog>
+  </div>
+}
+
+function NextAction({ ready = false, disabled = false, note, label, onClick }: { ready?: boolean; disabled?: boolean; note?: string; label: string; onClick: () => void }) {
+  return <div className={`panel-footer ${ready ? 'next-action-ready' : ''}`}>
+    {ready && <div className="next-action-note"><CheckCircle2 size={14}/><span>{note}</span><ChevronDown size={14}/></div>}
+    <button className={`primary-button ${ready ? 'guided-action' : ''}`} disabled={disabled} onClick={onClick}>{label}<ArrowRight size={16}/></button>
   </div>
 }
 

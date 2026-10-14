@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from 'react'
-import { Eye, MoveHorizontal, Plus } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Eye, Maximize2, Minimize2, MoveHorizontal, Plus } from 'lucide-react'
 import type { LessonState } from './lesson'
 import { optics } from './model'
 
@@ -17,7 +17,10 @@ type Props = {
 }
 
 export function Bench({ state: s, onPlace, onObject, onScreen, onHeight, onMisplace, replay = 0 }: Props) {
+  const sectionRef = useRef<HTMLElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [compact, setCompact] = useState(() => window.matchMedia('(orientation: landscape) and (max-height: 600px)').matches)
   const dragging = useRef<'object' | 'screen' | 'height' | null>(null)
   const [placing, setPlacing] = useState(false)
   const [dragPoint, setDragPoint] = useState<{ x: number; y: number } | null>(null)
@@ -36,6 +39,30 @@ export function Bench({ state: s, onPlace, onObject, onScreen, onHeight, onMispl
   const canMove = canObject || canScreen || canHeight
   const phantom = s.throughLens && physics.v < 0 && Number.isFinite(physics.v)
   const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, Math.round(value * 2) / 2))
+
+  useEffect(() => {
+    const media = window.matchMedia('(orientation: landscape) and (max-height: 600px)')
+    const resize = () => setCompact(media.matches)
+    media.addEventListener('change', resize)
+    return () => media.removeEventListener('change', resize)
+  }, [])
+  useEffect(() => { setExpanded(false) }, [s.step])
+  useEffect(() => {
+    if (!expanded) return
+    const previousFocus = document.activeElement as HTMLElement | null
+    sectionRef.current?.querySelector<HTMLButtonElement>('.bench-expand')?.focus()
+    const keyboard = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExpanded(false)
+      if (event.key !== 'Tab') return
+      const buttons = [...(sectionRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || [])]
+      if (!buttons.length) return
+      const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
+      const next = event.shiftKey ? (current <= 0 ? buttons.length - 1 : current - 1) : (current + 1) % buttons.length
+      event.preventDefault(); buttons[next].focus()
+    }
+    document.addEventListener('keydown', keyboard)
+    return () => { document.removeEventListener('keydown', keyboard); previousFocus?.focus() }
+  }, [expanded])
 
   function move(event: React.PointerEvent<SVGSVGElement>) {
     const matrix = svgRef.current?.getScreenCTM()
@@ -64,9 +91,9 @@ export function Bench({ state: s, onPlace, onObject, onScreen, onHeight, onMispl
     placeStart.current = null; setPlacing(false); setDragPoint(null)
   }
 
-  return <section className="visual-area" aria-label="凸透镜成像实验台">
-    <div className="visual-toolbar"><span className="visual-title"><span className="live-dot"/>光具座 · 实时实验</span><span className="scale-label">{s.step >= 3 ? 'f = 10 cm' : '测量与准备'}</span></div>
-    <div className="diagram-wrap"><svg ref={svgRef} viewBox="0 0 920 480" role="img" aria-label="蜡烛、凸透镜和光屏实时仿真" onPointerMove={move} onPointerUp={() => { dragging.current = null }} onPointerCancel={() => { dragging.current = null }} style={{ touchAction: canMove ? 'none' : 'auto' }}>
+  return <section ref={sectionRef} className={`visual-area ${compact ? 'compact-bench' : ''} ${expanded ? 'bench-expanded' : ''}`} role={expanded ? 'dialog' : undefined} aria-modal={expanded ? true : undefined} aria-label="凸透镜成像实验台">
+    <div className="visual-toolbar"><span className="visual-title"><span className="live-dot"/>光具座 · 实时实验</span><div className="visual-tools"><span className="scale-label">{s.step >= 3 ? 'f = 10 cm' : '测量与准备'}</span><button className="bench-expand" title={expanded ? '收起实验台' : '放大实验台'} aria-label={expanded ? '收起实验台' : '放大实验台'} onClick={() => setExpanded(!expanded)}>{expanded ? <Minimize2 size={17}/> : <Maximize2 size={17}/>}</button></div></div>
+    <div className="diagram-wrap"><svg ref={svgRef} viewBox={compact ? '40 80 860 355' : '0 0 920 480'} role="img" aria-label="蜡烛、凸透镜和光屏实时仿真" onPointerMove={move} onPointerUp={() => { dragging.current = null }} onPointerCancel={() => { dragging.current = null }} style={{ touchAction: canMove ? 'none' : 'auto' }}>
       <defs>
         <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="#e6eceb" strokeWidth=".7"/></pattern>
         <linearGradient id="glass"><stop stopColor="#abdae2"/><stop offset=".5" stopColor="#f0fcfb"/><stop offset="1" stopColor="#9dcfdb"/></linearGradient>
@@ -82,7 +109,7 @@ export function Bench({ state: s, onPlace, onObject, onScreen, onHeight, onMispl
       {s.step >= 3 && [260,360,560,660].map((x,i) => <g key={x}><circle cx={x} cy="250" r="3.5" fill="#d5964c"/><text x={x} y="276" textAnchor="middle" className="focus-label">{['2F₁','F₁','F₂','2F₂'][i]}</text></g>)}
       {active && <g key={replay} className="ray-group" data-testid="ray-paths">{physics.segments.map((seg, i) => <g key={i}><line x1={seg.from.x * 10} y1={seg.from.y * 10} x2={seg.to.x * 10} y2={seg.to.y * 10} stroke={seg.virtual ? '#aa8c65' : ['#e97055','#278da0','#c79a42'][Math.floor(i / 2) % 3]} strokeWidth={seg.virtual ? 1.5 : 2} strokeDasharray={seg.virtual ? '6 5' : undefined}/>{!seg.virtual && <circle r="2.5" fill="#f7ba5e"><animateMotion dur="2.8s" repeatCount="indefinite" path={`M${seg.from.x * 10} ${seg.from.y * 10}L${seg.to.x * 10} ${seg.to.y * 10}`}/></circle>}</g>)}</g>}
       {s.equipment >= 1 && !parallel && <g className={canObject || canHeight ? 'draggable-apparatus' : ''} onPointerDown={e => { if (canObject) grab('object', e); if (canHeight) grab('height', e) }} data-testid="candle">
-        <rect x={objectX - 27} y={objectY - 25} width="54" height="165" fill="transparent"/>
+        <rect x={objectX - 27} y={objectY - 25} width="54" height="165" fill="transparent" stroke="transparent" strokeWidth={canObject || canHeight ? 24 : 0} vectorEffect="non-scaling-stroke"/>
         <rect x={objectX - 8} y={objectY + 21} width="16" height="64" rx="2" fill="#f1eee8" stroke="#b39b82" strokeWidth="1.5"/><line x1={objectX} y1={objectY + 13} x2={objectX} y2={objectY + 24} stroke="#395359" strokeWidth="2"/>
         <Flame x={objectX} y={objectY}/><rect x={objectX - 3} y={objectY + 85} width="6" height={389 - objectY - 85} fill="#879fa3"/><rect x={objectX - 20} y="381" width="40" height="8" rx="2" fill="#69868d"/>
         <text x={objectX} y={objectY - 39} textAnchor="middle" className="diagram-label">蜡烛</text>
@@ -91,7 +118,7 @@ export function Bench({ state: s, onPlace, onObject, onScreen, onHeight, onMispl
       </g>}
       {parallel && <g><rect x="49" y="198" width="22" height="104" rx="4" fill="#45636a"/><text x="80" y="173" className="diagram-label">平行光源</text></g>}
       {s.equipment >= 3 && !s.throughLens && <g className={canScreen ? 'draggable-apparatus' : ''} onPointerDown={e => { if (canScreen) grab('screen', e) }} data-testid="screen">
-        <rect x={screenX - 19} y="115" width="38" height="275" fill="transparent"/>
+        <rect x={screenX - 19} y="115" width="38" height="275" fill="transparent" stroke="transparent" strokeWidth={canScreen ? 32 : 0} vectorEffect="non-scaling-stroke"/>
         <rect x={screenX - 4} y="120" width="8" height="260" fill="#e3e9e7" stroke="#75959a" strokeWidth="2"/><rect x={screenX - 3} y="380" width="6" height="9" fill="#879fa3"/>
         <rect x={screenX - 20} y="381" width="40" height="8" rx="2" fill="#69868d"/>
         <text x={screenX} y="102" textAnchor="middle" className="diagram-label">光屏</text>
@@ -104,7 +131,7 @@ export function Bench({ state: s, onPlace, onObject, onScreen, onHeight, onMispl
       {s.throughLens && <g transform="translate(820 246)" stroke="#377d89" fill="white"><path d="M-21 0Q0 -24 21 0Q0 24 -21 0Z" strokeWidth="2"/><circle r="6" fill="#377d89"/><text x="0" y="42" textAnchor="middle" className="diagram-label">观察眼</text></g>}
       {trial && <g className="measure-lines"><path d={`M${objectX} 346V353H460V346`} fill="none" stroke="#bc8a54"/><text x={(objectX + 460) / 2} y="373" textAnchor="middle">u = {s.u.toFixed(1)} cm</text>{!s.throughLens && <><path d={`M460 307V314H${screenX}V307`} fill="none" stroke="#6c9da5"/><text x={(screenX + 460) / 2} y="333" textAnchor="middle">光屏距离 {s.screen.toFixed(1)} cm</text></>}</g>}
     </svg>
-    {s.step === 0 && s.equipment < 3 && <button className={`diagram-target place-target ${placing ? 'drop-active' : ''}`} style={{ left: `${[460 - s.u * 10, 460, screenX][s.equipment] / 9.2}%`, top: '52.0833%' }} aria-label={['放置蜡烛','放置凸透镜','放置光屏'][s.equipment]} onClick={onPlace}><Plus size={20}/></button>}
+    {s.step === 0 && s.equipment < 3 && <div className="placement-overlay"><button className={`diagram-target place-target ${placing ? 'drop-active' : ''}`} style={{ left: `${([460 - s.u * 10, 460, screenX][s.equipment] - (compact ? 40 : 0)) / (compact ? 8.6 : 9.2)}%`, top: compact ? '47.887324%' : '52.0833%' }} aria-label={['放置蜡烛','放置凸透镜','放置光屏'][s.equipment]} onClick={onPlace}><Plus size={20}/></button></div>}
     </div>
     {s.step === 0 && s.equipment < 3 && <div className="equipment-tray"><span>器材托盘</span><button className="tray-piece" onClick={e => { if (!dragWasMove.current) onPlace(); dragWasMove.current = false; e.preventDefault() }} onPointerDown={e => { placeStart.current = { x: e.clientX, y: e.clientY }; dragWasMove.current = false; e.currentTarget.setPointerCapture(e.pointerId); setPlacing(true) }} onPointerMove={e => { if (placeStart.current) setDragPoint({ x: e.clientX, y: e.clientY }) }} onPointerUp={dropEquipment} onPointerCancel={() => { placeStart.current = null; setPlacing(false); setDragPoint(null) }} aria-label={`拖拽${['蜡烛','凸透镜','光屏'][s.equipment]}到指定位置`}>{['蜡烛','凸透镜','光屏'][s.equipment]} <MoveHorizontal size={15}/></button><small>拖到圆形位置，或点按器材放置</small></div>}
     {placing && dragPoint && <div className="drag-ghost" style={{ left: dragPoint.x, top: dragPoint.y }} aria-hidden="true">{['蜡烛','凸透镜','光屏'][s.equipment]}</div>}
