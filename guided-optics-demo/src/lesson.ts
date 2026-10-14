@@ -14,6 +14,15 @@ export const trials = [
   { u: 6, condition: 'u < f', title: '物体位于焦点以内', v: '15', range: '与物同侧', orientation: '正立', size: '放大', nature: '虚像', question: '从透镜右侧观察到的像，具有什么特点？', choices: ['光屏上的倒立实像', '正立、放大，不能被光屏承接的虚像', '没有任何像'], answer: 1 },
 ] as const
 export const titles = ['摆放实验器材', '调节三心同高', '测量透镜焦距', ...trials.map(t => t.title), '归纳成像规律', '实验完成']
+export const stepQuestions = [
+  '',
+  '怎样调整器材，才能让烛焰的像落在光屏中央？',
+  '平行光经过凸透镜后，怎样找到这枚透镜的焦距？',
+  ...trials.map(t => t.question),
+  '改变物距后，像距、正倒、大小与虚实有什么规律？',
+  '你能根据五组实验记录总结凸透镜成像规律吗？',
+]
+export const stepTypes = ['', '题型 1 · 对齐', '题型 2 · 测焦距', '题型 3 · 观察成像', '题型 4 · 比较大小', '题型 5 · 比较位置', '题型 6 · 焦点探究', '题型 7 · 虚像探究', '题型 8 · 归纳填表', '实验结论']
 export const emptyRow = (): RecordRow => ({ v: '', orientation: '', size: '', nature: '' })
 export const fresh = (): LessonState => ({ version: 2, step: 0, phase: 'adjust', equipment: 0, height: -2, u: 30, screen: 24, objectLocked: false, scanned: [24, 24], throughLens: false, records: trials.map(emptyRow) })
 

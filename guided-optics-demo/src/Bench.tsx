@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Eye, MoveHorizontal, Plus } from 'lucide-react'
 import type { LessonState } from './lesson'
 import { optics } from './model'
@@ -13,12 +13,16 @@ export function Flame({ x = 0, y = 0, scale = 1, ghost = false }: { x?: number; 
 type Props = {
   state: LessonState; onPlace: () => void; onObject: (n: number) => void;
   onScreen: (n: number) => void; onHeight: (n: number) => void;
-  replay?: number;
+  replay?: number; onMisplace?: () => void;
 }
 
-export function Bench({ state: s, onPlace, onObject, onScreen, onHeight, replay = 0 }: Props) {
+export function Bench({ state: s, onPlace, onObject, onScreen, onHeight, onMisplace, replay = 0 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
   const dragging = useRef<'object' | 'screen' | 'height' | null>(null)
+  const [placing, setPlacing] = useState(false)
+  const [dragPoint, setDragPoint] = useState<{ x: number; y: number } | null>(null)
+  const placeStart = useRef<{ x: number; y: number } | null>(null)
+  const dragWasMove = useRef(false)
   const parallel = s.step === 2
   const active = s.step >= 2
   const trial = s.step >= 3 && s.step <= 7
@@ -47,6 +51,17 @@ export function Bench({ state: s, onPlace, onObject, onScreen, onHeight, replay 
     dragging.current = kind
     svgRef.current?.setPointerCapture(event.pointerId)
     event.preventDefault()
+  }
+  function dropEquipment(event: React.PointerEvent<HTMLButtonElement>) {
+    if (!placeStart.current) return
+    const moved = Math.hypot(event.clientX - placeStart.current.x, event.clientY - placeStart.current.y) > 12
+    dragWasMove.current = moved
+    if (moved) {
+      const target = document.querySelector('.place-target')?.getBoundingClientRect()
+      if (target && event.clientX >= target.left - 24 && event.clientX <= target.right + 24 && event.clientY >= target.top - 24 && event.clientY <= target.bottom + 24) onPlace()
+      else onMisplace?.()
+    }
+    placeStart.current = null; setPlacing(false); setDragPoint(null)
   }
 
   return <section className="visual-area" aria-label="凸透镜成像实验台">
@@ -89,9 +104,20 @@ export function Bench({ state: s, onPlace, onObject, onScreen, onHeight, replay 
       {s.throughLens && <g transform="translate(820 246)" stroke="#377d89" fill="white"><path d="M-21 0Q0 -24 21 0Q0 24 -21 0Z" strokeWidth="2"/><circle r="6" fill="#377d89"/><text x="0" y="42" textAnchor="middle" className="diagram-label">观察眼</text></g>}
       {trial && <g className="measure-lines"><path d={`M${objectX} 346V353H460V346`} fill="none" stroke="#bc8a54"/><text x={(objectX + 460) / 2} y="373" textAnchor="middle">u = {s.u.toFixed(1)} cm</text>{!s.throughLens && <><path d={`M460 307V314H${screenX}V307`} fill="none" stroke="#6c9da5"/><text x={(screenX + 460) / 2} y="333" textAnchor="middle">光屏距离 {s.screen.toFixed(1)} cm</text></>}</g>}
     </svg>
-    {s.step === 0 && s.equipment < 3 && <button className="diagram-target place-target" style={{ left: `${[460 - s.u * 10, 460, screenX][s.equipment] / 9.2}%`, top: '52.0833%' }} aria-label={['放置蜡烛','放置凸透镜','放置光屏'][s.equipment]} onClick={onPlace}><Plus size={20}/></button>}
+    {s.step === 0 && s.equipment < 3 && <button className={`diagram-target place-target ${placing ? 'drop-active' : ''}`} style={{ left: `${[460 - s.u * 10, 460, screenX][s.equipment] / 9.2}%`, top: '52.0833%' }} aria-label={['放置蜡烛','放置凸透镜','放置光屏'][s.equipment]} onClick={onPlace}><Plus size={20}/></button>}
     </div>
-    {active && <div className="observation-strip">
+    {s.step === 0 && s.equipment < 3 && <div className="equipment-tray"><span>器材托盘</span><button className="tray-piece" onClick={e => { if (!dragWasMove.current) onPlace(); dragWasMove.current = false; e.preventDefault() }} onPointerDown={e => { placeStart.current = { x: e.clientX, y: e.clientY }; dragWasMove.current = false; e.currentTarget.setPointerCapture(e.pointerId); setPlacing(true) }} onPointerMove={e => { if (placeStart.current) setDragPoint({ x: e.clientX, y: e.clientY }) }} onPointerUp={dropEquipment} onPointerCancel={() => { placeStart.current = null; setPlacing(false); setDragPoint(null) }} aria-label={`拖拽${['蜡烛','凸透镜','光屏'][s.equipment]}到指定位置`}>{['蜡烛','凸透镜','光屏'][s.equipment]} <MoveHorizontal size={15}/></button><small>拖到圆形位置，或点按器材放置</small></div>}
+    {placing && dragPoint && <div className="drag-ghost" style={{ left: dragPoint.x, top: dragPoint.y }} aria-hidden="true">{['蜡烛','凸透镜','光屏'][s.equipment]}</div>}
+    <div className="visual-footer"><span><MoveHorizontal size={14}/>{canObject ? '移动蜡烛，改变物距' : canScreen ? '移动光屏，观察画面变化' : canHeight ? '调整烛焰中心的高度' : '观察物与像的位置关系'}</span><span>近轴薄透镜模型</span></div>
+  </section>
+}
+
+export function ScreenStatus({ state: s }: { state: LessonState }) {
+  const active = s.step >= 2
+  const parallel = s.step === 2
+  const trial = s.step >= 3 && s.step <= 7
+  const physics = optics(s.u, s.screen, parallel, s.throughLens)
+  return <section className="screen-status" aria-label="光屏状态"><div className="screen-heading"><strong>{s.throughLens ? '透镜观察窗' : '光屏状态'}</strong><span>{active ? `光屏距 ${s.screen.toFixed(1)} cm` : '等待实验'}</span></div>{active ? <div className="observation-strip">
       <div className="observation-view"><div className="view-caption">{s.throughLens ? <Eye size={14}/> : <FocusIcon/>}{s.throughLens ? '透过透镜观察' : '光屏正面'}</div>
         <svg viewBox="0 0 210 142" aria-label={s.throughLens ? '透过透镜观察的烛焰像' : '光屏上的实时光斑或烛焰像'} data-testid="screen-preview" data-blur={physics.blur.toFixed(2)}>
           <defs><filter id="preview-blur"><feGaussianBlur stdDeviation={physics.blur}/></filter></defs>
@@ -103,9 +129,7 @@ export function Bench({ state: s, onPlace, onObject, onScreen, onHeight, replay 
       </div>
       <div className="observation-view comparison"><div className="view-caption">{parallel ? '透镜至光屏' : '烛焰原始大小'}</div>{parallel ? <div className="focus-reading"><strong>{s.screen.toFixed(1)}</strong><span>cm</span></div> : <svg viewBox="0 0 110 142" aria-label="原始烛焰大小参照"><path d="M6 70H104" stroke="#d7e2df" strokeDasharray="4 4"/><Flame x={55} y={70} scale={2}/><text x="55" y="122" textAnchor="middle" className="ruler-text">相同比例</text></svg>}</div>
       <div className="observation-notes"><div className="hint-heading"><span/>现场观察</div><p>{parallel ? '移动光屏，比较光斑的大小与亮度。' : s.throughLens ? '比较视野中的像与原始烛焰的方向、大小。' : '让光屏前后移动，观察烛焰的轮廓如何变化。'}</p>{trial && s.objectLocked && <span className="record-reading">u = {s.u.toFixed(1)} cm{!s.throughLens && ` · 光屏距离 ${s.screen.toFixed(1)} cm`}</span>}</div>
-    </div>}
-    <div className="visual-footer"><span><MoveHorizontal size={14}/>{canObject ? '移动蜡烛，改变物距' : canScreen ? '移动光屏，观察画面变化' : canHeight ? '调整烛焰中心的高度' : '观察物与像的位置关系'}</span><span>近轴薄透镜模型</span></div>
-  </section>
+    </div> : <div className="screen-placeholder"><Eye size={22}/><span>摆好器材并完成对齐后，在这里观察成像</span></div>}</section>
 }
 
 function FocusIcon() { return <span className="small-screen-icon"/> }

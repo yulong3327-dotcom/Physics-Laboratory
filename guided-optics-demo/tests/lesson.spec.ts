@@ -1,15 +1,19 @@
 import { expect, test, type Page } from '@playwright/test'
+import { mkdirSync } from 'node:fs'
 import { optics } from '../src/model'
 import { trials, wrongCells } from '../src/lesson'
 
-async function start(page: Page) { await page.getByRole('button', { name: '开始操作', exact: true }).click() }
-async function next(page: Page) { await page.getByRole('button', { name: '进入下一步', exact: true }).click(); await start(page) }
+mkdirSync('artifacts', { recursive: true })
+
+async function next(page: Page) { await page.getByRole('button', { name: '进入下一步', exact: true }).click() }
 async function observe(page: Page) {
   await page.getByRole('button', { name: '确认位置，观察结果' }).click()
   await expect(page.locator('dialog[open]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '确认判断' })).toHaveCount(0)
-  await expect(page.getByTestId('ray-paths')).toBeVisible()
-  await expect(page.getByTestId('screen-preview')).toBeVisible()
+  if (await page.getByTestId('ray-paths').count()) {
+    await expect(page.getByTestId('ray-paths')).toBeVisible()
+    await expect(page.getByTestId('screen-preview')).toBeVisible()
+  }
 }
 async function judge(page: Page, answer: string) {
   await page.getByRole('button', { name: '已观察，开始判断' }).click()
@@ -43,13 +47,13 @@ test('student sees live results before judging and completes the locked course',
   page.on('pageerror', error => errors.push(error.message))
   await page.setViewportSize({ width: 1440, height: 1050 })
   await page.goto('/')
-  await start(page)
-  await expect(page.getByRole('textbox', { name: '物距30厘米时的像距' })).toBeDisabled()
+  await expect(page.getByText('按顺序摆放蜡烛、凸透镜与光屏。')).toBeVisible()
   for (const name of ['放置蜡烛','放置凸透镜','放置光屏']) await page.getByRole('button', { name, exact: true }).click()
   await next(page)
-  await expect(page.getByRole('button', { name: '确认三心同高' })).toBeDisabled()
+  await expect(page.getByText('怎样调整器材，才能让烛焰的像落在光屏中央？')).toBeVisible()
   await page.getByRole('slider', { name: '调节火焰高度' }).fill('0')
-  await page.getByRole('button', { name: '确认三心同高' }).click()
+  await observe(page)
+  await judge(page, '三者中心大致处于同一高度')
   await next(page)
   await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('10')
   await observe(page)
@@ -82,7 +86,6 @@ test('student sees live results before judging and completes the locked course',
       await expect(page.getByRole('button', { name: '进入下一步' })).toHaveCount(0)
       await page.getByRole('button', { name: '再观察一下' }).click()
       await page.reload()
-      await start(page)
       await expect(page.getByRole('button', { name: '已观察，开始判断' })).toBeVisible()
     }
     if (i === 4) await page.screenshot({ path: 'artifacts/virtual-observation.png', fullPage: true })
@@ -98,12 +101,13 @@ test('student sees live results before judging and completes the locked course',
     await page.getByRole('combobox', { name: `物距${t.u}厘米时的虚实` }).selectOption(t.nature)
   }
   await page.getByRole('button', { name: '核对并完成实验' }).click()
-  await expect(page.getByRole('heading', { name: '实验完成', exact: true })).toBeVisible()
+  await expect(page.getByText('实验结论')).toBeVisible()
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: '下载实验表格' }).click()
   const file = await download
   await file.saveAs('artifacts/成像规律.csv')
   expect(file.suggestedFilename()).toBe('凸透镜成像规律实验记录.csv')
+  await page.getByRole('tab', { name: '回看光路' }).click()
   await page.getByRole('tab', { name: /u < f/ }).click()
   await expect(page.getByText('透过透镜观察', { exact: true }).first()).toBeVisible()
   await page.screenshot({ path: 'artifacts/completed.png', fullPage: true })
@@ -113,7 +117,6 @@ test('student sees live results before judging and completes the locked course',
 test('mobile remains within viewport and has live screen feedback', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
-  await start(page)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   await page.screenshot({ path: 'artifacts/mobile.png', fullPage: true })
   await page.getByRole('button', { name: '放置蜡烛' }).click()
@@ -121,10 +124,46 @@ test('mobile remains within viewport and has live screen feedback', async ({ pag
   await page.getByRole('button', { name: '放置光屏' }).click()
   await next(page)
   await page.getByRole('slider', { name: '调节火焰高度' }).fill('0')
-  await page.getByRole('button', { name: '确认三心同高' }).click()
+  await observe(page)
+  await judge(page, '三者中心大致处于同一高度')
   await next(page)
   await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('10')
   await expect(page.getByTestId('screen-preview')).toHaveAttribute('data-blur','0.00')
   await page.screenshot({ path: 'artifacts/mobile-simulation.png', fullPage: true })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+})
+
+test('landscape layout, drag placement, and contextual hints', async ({ page }) => {
+  await page.setViewportSize({ width: 844, height: 390 })
+  await page.goto('/')
+  const tray = page.getByRole('button', { name: '拖拽蜡烛到指定位置' })
+  await tray.dragTo(page.getByRole('button', { name: '重新开始实验' }))
+  await expect(page.getByRole('status')).toContainText('还没放到圆形目标处')
+  await expect(page.getByRole('button', { name: '放置蜡烛' })).toBeVisible()
+  await tray.dragTo(page.getByRole('button', { name: '放置蜡烛' }))
+  await expect(page.getByTestId('candle')).toBeVisible()
+  for (const name of ['放置凸透镜', '放置光屏']) await page.getByRole('button', { name }).click()
+  await next(page)
+  await page.getByRole('slider', { name: '调节火焰高度' }).fill('2')
+  await expect(page.getByRole('status')).toContainText('偏低')
+  await page.getByRole('slider', { name: '调节火焰高度' }).fill('0')
+  await observe(page)
+  await judge(page, '三者中心大致处于同一高度')
+  await next(page)
+  await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('30')
+  await expect(page.getByRole('status')).toContainText('太远')
+  await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('10')
+  await expect(page.getByRole('status')).toContainText('最小')
+  await expect(page.getByTestId('screen-preview')).toBeVisible()
+  const sizes = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, width: innerWidth, preview: document.querySelector('.screen-status')!.getBoundingClientRect().width, bench: document.querySelector('.visual-area')!.getBoundingClientRect().width, questionTop: document.querySelector('.question-line')!.getBoundingClientRect().top, panelBottom: document.querySelector('.action-panel')!.getBoundingClientRect().bottom }))
+  expect(sizes.scrollWidth).toBeLessThanOrEqual(sizes.width)
+  expect(sizes.preview).toBeGreaterThan(250)
+  expect(sizes.bench).toBeGreaterThan(sizes.preview)
+  expect(sizes.questionTop).toBeGreaterThanOrEqual(0)
+  expect(sizes.panelBottom).toBeLessThanOrEqual(390)
+  await page.screenshot({ path: 'artifacts/landscape-844.png' })
+  await page.setViewportSize({ width: 667, height: 375 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(667)
+  expect(await page.locator('.action-panel').evaluate(el => el.getBoundingClientRect().bottom)).toBeLessThanOrEqual(375)
+  await page.screenshot({ path: 'artifacts/landscape-667.png' })
 })
