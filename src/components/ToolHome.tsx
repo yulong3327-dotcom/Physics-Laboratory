@@ -37,7 +37,7 @@ const tools = [
 ] as const
 
 export function ToolHome({ onCircuit, onOptics }: ToolHomeProps) {
-  const open = { circuit: onCircuit, optics: onOptics, guided: () => { window.location.href = import.meta.env.DEV ? `${location.protocol}//${location.hostname}:5174/` : `${import.meta.env.BASE_URL}guided-optics/` } }
+  const open = { circuit: onCircuit, optics: onOptics, guided: () => { window.location.href = new URL('guided-optics/', document.baseURI).href } }
   return <main className="tool-home">
     <header className="tool-home-header">
       <div className="tool-home-brand"><span className="tool-home-mark"><FlaskConical size={22} /></span><span>物理仿真 AI 实验室</span></div>
