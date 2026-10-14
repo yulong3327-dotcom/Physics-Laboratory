@@ -1,9 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { optics } from '../src/model'
 import { trials, wrongCells } from '../src/lesson'
 
 mkdirSync('artifacts', { recursive: true })
+const voiceCues = JSON.parse(readFileSync(new URL('../src/voiceCues.json', import.meta.url), 'utf8')) as { id: string }[]
 
 async function next(page: Page) { await page.getByRole('button', { name: '进入下一步', exact: true }).click() }
 async function observe(page: Page) {
@@ -40,6 +41,27 @@ test('thin-lens engine focuses real images and preserves virtual and infinity ca
   const rows = trials.map(t => ({ v: t.v, orientation: t.orientation, size: t.size, nature: t.nature }))
   expect(wrongCells(rows)).toEqual([])
   expect(wrongCells(rows.map((r,i) => i === 0 ? { ...r, v: 'abc' } : r))).toContain('0-v')
+})
+
+test('mentor portrait, 32 voice clips, and playback controls work', async ({ page, request }) => {
+  expect(voiceCues).toHaveLength(32)
+  for (const cue of voiceCues) {
+    const response = await request.get(`/voice/${cue.id}.wav`)
+    expect(response.status(), cue.id).toBe(200)
+    expect((await response.body()).subarray(0, 4).toString(), cue.id).toBe('RIFF')
+  }
+  await page.goto('/')
+  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '01')
+  await expect(page.locator('.mentor-avatar')).toHaveJSProperty('naturalWidth', 256)
+  await page.getByRole('button', { name: '重播引导' }).click()
+  await expect(page.getByRole('button', { name: '暂停语音' })).toBeVisible()
+  await page.getByRole('button', { name: '静音', exact: true }).click()
+  await expect(page.getByRole('button', { name: '取消静音' })).toBeVisible()
+  await page.getByRole('button', { name: '关闭引导' }).click()
+  await page.getByRole('button', { name: '打开语音引导' }).click()
+  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '01')
+  await page.reload()
+  await expect(page.getByRole('button', { name: '取消静音' })).toBeVisible()
 })
 
 test('student sees live results before judging and completes the locked course', async ({ page }) => {
@@ -139,21 +161,29 @@ test('landscape layout, drag placement, and contextual hints', async ({ page }) 
   const tray = page.getByRole('button', { name: '拖拽蜡烛到指定位置' })
   await tray.dragTo(page.getByRole('button', { name: '重新开始实验' }))
   await expect(page.getByRole('status')).toContainText('还没放到圆形目标处')
+  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '02')
   await expect(page.getByRole('button', { name: '放置蜡烛' })).toBeVisible()
   await tray.dragTo(page.getByRole('button', { name: '放置蜡烛' }))
   await expect(page.getByTestId('candle')).toBeVisible()
   for (const name of ['放置凸透镜', '放置光屏']) await page.getByRole('button', { name }).click()
+  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '03')
   await next(page)
+  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '04')
   await page.getByRole('slider', { name: '调节火焰高度' }).fill('2')
   await expect(page.getByRole('status')).toContainText('偏低')
+  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '05')
   await page.getByRole('slider', { name: '调节火焰高度' }).fill('0')
+  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '06')
   await observe(page)
   await judge(page, '三者中心大致处于同一高度')
   await next(page)
+  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '07')
   await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('30')
   await expect(page.getByRole('status')).toContainText('太远')
+  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '08')
   await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('10')
   await expect(page.getByRole('status')).toContainText('最小')
+  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '09')
   await expect(page.getByTestId('screen-preview')).toBeVisible()
   const sizes = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, width: innerWidth, preview: document.querySelector('.screen-status')!.getBoundingClientRect().width, bench: document.querySelector('.visual-area')!.getBoundingClientRect().width, questionTop: document.querySelector('.question-line')!.getBoundingClientRect().top, panelBottom: document.querySelector('.action-panel')!.getBoundingClientRect().bottom }))
   expect(sizes.scrollWidth).toBeLessThanOrEqual(sizes.width)
@@ -165,5 +195,6 @@ test('landscape layout, drag placement, and contextual hints', async ({ page }) 
   await page.setViewportSize({ width: 667, height: 375 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(667)
   expect(await page.locator('.action-panel').evaluate(el => el.getBoundingClientRect().bottom)).toBeLessThanOrEqual(375)
+  expect(await page.getByRole('button', { name: '确认位置，观察结果' }).evaluate(el => el.getBoundingClientRect().bottom)).toBeLessThanOrEqual(375)
   await page.screenshot({ path: 'artifacts/landscape-667.png' })
 })
