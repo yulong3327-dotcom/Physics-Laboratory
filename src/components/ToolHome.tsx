@@ -1,4 +1,4 @@
-import { ArrowRight, CircuitBoard, FlaskConical, Waves } from 'lucide-react'
+import { ArrowRight, CircuitBoard, FlaskConical, Focus, Waves } from 'lucide-react'
 import '../styles/toolHome.css'
 
 type ToolHomeProps = {
@@ -25,14 +25,23 @@ const tools = [
     icon: Waves,
     tone: 'blue',
   },
+  {
+    id: 'guided',
+    title: '凸透镜教材实验',
+    description: '逐步调节蜡烛与光屏，先观察成像，再判断并填写实验记录。',
+    meta: '教材探究',
+    action: '开始凸透镜实验',
+    icon: Focus,
+    tone: 'mint',
+  },
 ] as const
 
 export function ToolHome({ onCircuit, onOptics }: ToolHomeProps) {
-  const open = { circuit: onCircuit, optics: onOptics }
+  const open = { circuit: onCircuit, optics: onOptics, guided: () => { window.location.href = import.meta.env.DEV ? `${location.protocol}//${location.hostname}:5174/` : `${import.meta.env.BASE_URL}guided-optics/` } }
   return <main className="tool-home">
     <header className="tool-home-header">
       <div className="tool-home-brand"><span className="tool-home-mark"><FlaskConical size={22} /></span><span>物理仿真 AI 实验室</span></div>
-      <span className="tool-home-status"><i />2 个实验室</span>
+      <span className="tool-home-status"><i />2 个实验室 · 1 个教材实验</span>
     </header>
     <section className="tool-home-intro">
       <div>

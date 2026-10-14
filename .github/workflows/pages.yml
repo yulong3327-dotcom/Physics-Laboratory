@@ -29,6 +29,17 @@ jobs:
         env:
           GITHUB_PAGES: 'true'
       - run: cp dist/index.html dist/404.html
+      - name: Install guided optics demo
+        run: npm ci --include=dev
+        working-directory: guided-optics-demo
+      - name: Verify guided optics physics
+        run: npm run test:e2e -- --grep "thin-lens engine"
+        working-directory: guided-optics-demo
+      - name: Build guided optics demo
+        run: npm run build
+        working-directory: guided-optics-demo
+      - name: Add guided lesson to Pages
+        run: cp -R guided-optics-demo/dist dist/guided-optics
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
