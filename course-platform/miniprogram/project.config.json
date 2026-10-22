@@ -2,7 +2,7 @@
   "description": "知课微信课程小程序",
   "miniprogramRoot": "./",
   "compileType": "miniprogram",
-  "appid": "wx943a02ab275a1cbe",
+  "appid": "wx949b46069f25443e",
   "projectname": "知课",
   "setting": {
     "es6": true,

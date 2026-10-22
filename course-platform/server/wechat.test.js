@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { wechatProvider, WechatAuthError } from './wechat.js';
 
-const config={WECHAT_APP_ID:'wx943a02ab275a1cbe',WECHAT_APP_SECRET:'test-secret-stays-on-server'};
+const config={WECHAT_APP_ID:'wx949b46069f25443e',WECHAT_APP_SECRET:'test-secret-stays-on-server'};
 const json=(data,status=200)=>({ok:status>=200 && status<300,status,async json(){return data;}});
 
 test('WeChat login exchanges a fresh code on the official endpoint with a bounded request',async()=>{
