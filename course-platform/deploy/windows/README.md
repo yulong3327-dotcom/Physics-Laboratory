@@ -44,6 +44,7 @@
 - 管理后台：`https://course.yulongchemistry.cn/admin`
 - `miniprogram/app.js` 的 `apiBaseUrl`：默认已设置为 `https://course.yulongchemistry.cn`。本机调试可临时改为 `http://127.0.0.1:4310`，真机和发布前恢复 HTTPS 地址。
 - 微信 request、downloadFile 合法域名：`https://course.yulongchemistry.cn`。学生端当前不上传文件；若后续加入上传功能，再设置对应 uploadFile 合法域名。视频或资料使用其他域名时按微信要求另外配置。
-- 支付通知 URL：`https://course.yulongchemistry.cn/api/payments/wechat/notify`。填写 URL 本身不会开通支付，还需配置商户并验证真实付款。
+- 小程序虚拟支付消息 URL：`https://course.yulongchemistry.cn/api/payments/wechat-virtual/notify`。服务器现有 `.env` 中补入 `WECHAT_VIRTUAL_OFFER_ID`、环境 `WECHAT_VIRTUAL_ENV`（`0` 正式 / `1` 沙箱）、对应 `WECHAT_VIRTUAL_APP_KEY`，以及与微信消息推送一致的 `WECHAT_MESSAGE_TOKEN`、`WECHAT_MESSAGE_AES_KEY`，然后重启服务。安装脚本不会覆盖既有 `.env`；不得将 AppKey 写进小程序。商品配置和购前/购后验收见 [虚拟支付内测](../../DEPLOYMENT.md#微信虚拟支付内测)。
+- 普通商户支付通知 URL：`https://course.yulongchemistry.cn/api/payments/wechat/notify`。仅网页 Native / 普通 JSAPI 模式需商户配置；虚拟支付开通不会自动开通网页扫码。
 
 最后在 Android、iOS 真机检查登录、学习、讲义下载与付款流程。当前模板不包含已完成备案、商户开通、视频托管或微信审核的承诺。

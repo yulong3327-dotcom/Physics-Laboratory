@@ -5,13 +5,13 @@ const vm=require('node:vm');
 const flush=()=>new Promise(setImmediate);
 
 function harness(){
-  const calls=[];
+  const calls=[],downloads=[],removed=[];
   const app={globalData:{token:'test-token'}};
   let definition;
   const request=(path,options)=>new Promise((resolve,reject)=>calls.push({path,options,resolve,reject,token:app.globalData.token}));
   vm.runInNewContext(fs.readFileSync(__dirname+'/../../miniprogram/pages/learn/index.js','utf8'),{
     Page:value=>{definition=value;},
-    require:path=>path.endsWith('/api')?{request,absoluteUrl:value=>value}:{course:value=>value,lesson:value=>value},
+    require:path=>path.endsWith('/api')?{request,absoluteUrl:value=>value,removeTempVideo:path=>removed.push(path),downloadVideo:(path,options)=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});const download={path,options,promise,resolve,reject,aborted:false,abort(){this.aborted=true;const error=new Error('cancelled');error.cancelled=true;reject(error);}};downloads.push(download);return download;}}:{course:value=>value,lesson:value=>value},
     getApp:()=>app,
     wx:{createVideoContext:()=>({pause(){}}),setNavigationBarTitle(){}}
   });
@@ -19,14 +19,14 @@ function harness(){
   const find=path=>calls.filter(call=>call.path===path);
   const event=(session,seconds)=>({currentTarget:{dataset:{session}},detail:{currentTime:seconds}});
   const progress=()=>calls.filter(call=>call.path.endsWith('/progress'));
-  async function boot(course={}){
+  async function boot(course={},play={}){
     page.onLoad({courseId:'course',lessonId:'a'});
     find('/courses/course')[0].resolve({enrolled:true,canWatch:true,lessons:['a','b','c'].map(id=>({id})),progress:{},...course});
     await flush();
-    find('/lessons/a/play')[0].resolve({id:'a',url:'/a.mp4',title:'A',progress:0});
+    find('/lessons/a/play')[0].resolve({id:'a',url:'/a.mp4',title:'A',progress:0,...play});
     await flush();
   }
-  return {page,app,calls,find,event,progress,boot};
+  return {page,app,calls,find,event,progress,boot,downloads,removed};
 }
 
 test('old video events cannot change or complete a newly selected lesson',async()=>{
@@ -145,4 +145,32 @@ test('old playback responses are ignored when authentication changes before a re
   assert.equal(h.page.updates,updates);assert.equal(h.page._playback,null);
   h.progress()[0].resolve({});await h.page._saveQueue;
   assert.equal(h.page.updates,updates);
+});
+
+test('protected video plays only the authenticated temporary file and cleans it on leaving',async()=>{
+  const h=harness();await h.boot({}, {requiresAuthorizedDownload:true,playbackAuth:'session',url:'/api/media/private?signed=1'});
+  assert.equal(h.page.data.players.length,0);assert.equal(h.page.data.downloading,true);assert.equal(h.downloads.length,1);
+  assert.equal(h.downloads[0].options.token,'test-token');
+  h.downloads[0].options.onProgress({progress:43});assert.equal(h.page.data.downloadProgress,43);
+  h.downloads[0].resolve('wxfile://temporary-course.mp4');await flush();
+  assert.equal(h.page.data.players[0].url,'wxfile://temporary-course.mp4');assert.equal(h.page.data.downloading,false);
+  h.page.onHide();assert.equal(h.page.data.players.length,0);assert.deepEqual(h.removed,['wxfile://temporary-course.mp4']);
+  await flush();h.progress()[0].resolve({});await h.page._saveQueue;
+});
+
+test('leaving while a protected video loads aborts the transfer and ignores progress',async()=>{
+  const h=harness();await h.boot({}, {requiresAuthorizedDownload:true});const download=h.downloads[0];
+  h.page.onUnload();const updates=h.page.updates;download.options.onProgress({progress:90});await flush();
+  assert.equal(download.aborted,true);assert.equal(h.page.updates,updates);assert.equal(h.page._playback,undefined);assert.equal(h.page.data.players.length,0);
+});
+
+test('a protected video returned after an account change is discarded',async()=>{
+  const h=harness();await h.boot({}, {requiresAuthorizedDownload:true});h.app.globalData.token='another-user';const updates=h.page.updates;
+  h.downloads[0].resolve('wxfile://private-old-account.mp4');await flush();
+  assert.deepEqual(h.removed,['wxfile://private-old-account.mp4']);assert.equal(h.page.data.players.length,0);assert.equal(h.page.updates,updates);
+});
+
+test('cancelling a protected video transfer leaves a recoverable loading error',async()=>{
+  const h=harness();await h.boot({}, {requiresAuthorizedDownload:true});h.page.cancelLoading();await flush();
+  assert.equal(h.downloads[0].aborted,true);assert.equal(h.page.data.loading,false);assert.equal(h.page.data.downloading,false);assert.match(h.page.data.error,/已取消/);assert.equal(h.page.data.players.length,0);
 });

@@ -9,7 +9,7 @@ if(!existsSync(join(root,'web/dist/index.html')))throw new Error('先运行 npm 
 const releaseDir=join(root,'.tmp','releases');mkdirSync(releaseDir,{recursive:true});
 const stage=mkdtempSync(join(releaseDir,'stage-'));
 const app=join(stage,'course-platform');mkdirSync(app);
-const allowlist=['package.json','package-lock.json','README.md','DEPLOYMENT.md','server/app.js','server/database.js','server/index.js','server/package.json','server/sms.js','server/wechat.js','scripts/check-wechat-login.mjs','project.config.json','deploy/windows','web/dist'];
+const allowlist=['package.json','package-lock.json','README.md','DEPLOYMENT.md','server/app.js','server/database.js','server/index.js','server/package.json','server/sms.js','server/wechat.js','server/virtual-payment.js','scripts/check-wechat-login.mjs','project.config.json','deploy/windows','web/dist'];
 for(const name of allowlist){const target=join(app,name);mkdirSync(dirname(target),{recursive:true});cpSync(join(root,name),target,{recursive:true});}
 cpSync(join(root,'deploy/windows/.env.example'),join(app,'.env.example'));
 const entries=[];
@@ -27,6 +27,20 @@ function inspect(path){
   }
 }
 inspect(app);
+// Reject incomplete releases when a runtime module gains a new local dependency.
+const checkedModules=new Set();
+function inspectRuntimeModule(path){
+  if(checkedModules.has(path))return;
+  checkedModules.add(path);
+  const source=readFileSync(path,'utf8');
+  const localImports=/(?:\b(?:import|export)\s+(?:[^'";]*?\s+from\s*)?|\b(?:import|require)\s*\(\s*)(['"])(\.{1,2}\/[^'"]+)\1/g;
+  for(const match of source.matchAll(localImports)){
+    const target=resolve(dirname(path),match[2]),name=relative(app,target).replaceAll('\\','/');
+    if(name.startsWith('../')||!existsSync(target)||!statSync(target).isFile())throw new Error('发布包缺少运行时模块：'+name+'（由 '+relative(app,path).replaceAll('\\','/')+' 引用，请更新 allowlist）');
+    if(/\.(?:c?js|mjs)$/.test(target))inspectRuntimeModule(target);
+  }
+}
+inspectRuntimeModule(join(app,'server/index.js'));
 const stamp=new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d+Z$/,'Z');
 const zip=join(releaseDir,`zhike-windows-${stamp}.zip`);
 const result=spawnSync('tar.exe',['-a','-cf',zip,'-C',stage,'course-platform'],{encoding:'utf8',windowsHide:true});

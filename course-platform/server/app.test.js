@@ -95,7 +95,7 @@ test('admin CRUD, private uploads, signed video playback, files and role isolati
   const bad=new FormData();bad.append('file',new Blob(['evil']), 'bad.html');assert.equal((await r('/admin/uploads',{method:'POST',token,body:bad})).status,400);
   const video=new FormData();video.append('file',new Blob(['demovideo'],{type:'video/mp4'}),'lesson.mp4');
   const upload=await r('/admin/uploads',{method:'POST',token,body:video});assert.equal(upload.status,201);
-  assert.equal((await fetch(f.base+upload.data.url)).status,403);
+  const blockedVideo=await fetch(f.base+upload.data.url);assert.equal(blockedVideo.status,403);assert.equal(blockedVideo.headers.get('cross-origin-resource-policy'),'same-origin');
   let lesson=await r(`/admin/courses/${id}/lessons`,{method:'POST',token,body:{title:'测试课时',duration:100,videoUrl:upload.data.url,isPreview:false,sort:1}});
   assert.equal(lesson.status,201);assert.equal(lesson.data.isPreview,false);
   const pdf=new FormData();pdf.append('file',new Blob(['demo handout'],{type:'application/pdf'}),'handout.pdf');
@@ -106,7 +106,8 @@ test('admin CRUD, private uploads, signed video playback, files and role isolati
   const order=(await r('/orders',{method:'POST',token:student.token,body:{courseId:id}})).data;
   await r(`/orders/${order.id}/pay`,{method:'POST',token:student.token});
   const play=await r(`/lessons/${lesson.data.id}/play`,{token:student.token});assert.match(play.data.url,/signature=/);
-  assert.equal((await fetch(f.base+play.data.url)).status,200);
+  assert.equal((await fetch(f.base+play.data.url)).status,403);
+  const allowedVideo=await fetch(f.base+play.data.url,{headers:{Authorization:`Bearer ${student.token}`}});assert.equal(allowedVideo.status,200);assert.equal(allowedVideo.headers.get('cross-origin-resource-policy'),'same-origin');
   assert.equal((await fetch(f.base+play.data.url.replace(/signature=[^&]+/,'signature=bad'))).status,403);
   assert.equal((await r(`/materials/${material.data.id}/download`,{token:student.token})).status,200);
   assert.equal((await r('/admin/orders',{token})).data[0].courseTitle,'测试课程更新');
@@ -116,6 +117,110 @@ test('admin CRUD, private uploads, signed video playback, files and role isolati
   assert.equal((await r(`/admin/lessons/${lesson.data.id}`,{method:'DELETE',token})).status,200);
   assert.equal((await r(`/admin/courses/${id}`,{method:'DELETE',token})).data.archived,true);
   assert.equal((await r(`/courses/${id}`)).status,404);
+});
+
+test('course artwork and product metadata are validated, persisted and returned consistently',async t=>{
+  const f=await fixture(t),r=f.request;
+  const admin=(await r('/admin/login',{method:'POST',body:{username:'admin',password:'admin123456'}})).data;
+  const image=new FormData();image.append('file',new Blob([Uint8Array.from([137,80,78,71,13,10,26,10])],{type:'image/png'}),'cover.png');
+  const upload=(await r('/admin/uploads',{method:'POST',token:admin.token,body:image})).data;
+  assert.equal(upload.kind,'cover');const artwork=await fetch(f.base+upload.url);assert.equal(artwork.status,200);assert.equal(artwork.headers.get('cross-origin-resource-policy'),'cross-origin');assert.match(artwork.headers.get('cache-control'),/^public,/);
+  const existing=(await r('/courses/course-math')).data;
+  assert.equal(existing.coverImage,'');assert.deepEqual(existing.detailImages,[]);assert.equal(existing.productId,'');
+  const input={title:'含课程封面的课程',subject:'数学',grade:'高二',type:'专题课',teacher:'测试老师',price:99,originalPrice:199,status:'published',coverImage:upload.url,detailImages:[upload.url,'https://images.example.com/lesson-detail.png'],productId:'course_math_2026',tags:['附带讲义'],description:'适用对象：高中学生。\n服务说明：课程视频与配套讲义。'};
+  const created=await r('/admin/courses',{method:'POST',token:admin.token,body:input});
+  assert.equal(created.status,201,JSON.stringify(created.data));const id=created.data.id;
+  for(const path of [`/courses/${id}`,`/admin/courses/${id}`]) {
+    const response=(await r(path,{token:admin.token})).data;
+    assert.equal(response.coverImage,upload.url);assert.deepEqual(response.detailImages,input.detailImages);assert.equal(response.productId,input.productId);assert.equal(response.description,input.description);
+  }
+  assert.equal((await r('/courses')).data.find(course=>course.id===id).coverImage,upload.url);
+  const revised=await r(`/admin/courses/${id}`,{method:'PUT',token:admin.token,body:{title:'仅修改标题'}});
+  assert.equal(revised.data.coverImage,upload.url);assert.deepEqual(revised.data.detailImages,input.detailImages);assert.equal(revised.data.productId,input.productId);
+  const doc=new FormData();doc.append('file',new Blob(['private document']),'material.txt');
+  const document=(await r('/admin/uploads',{method:'POST',token:admin.token,body:doc})).data;
+  const blockedDocument=await fetch(f.base+document.url);assert.equal(blockedDocument.status,403);assert.equal(blockedDocument.headers.get('cross-origin-resource-policy'),'same-origin');
+  for(const invalid of [{coverImage:document.url},{coverImage:'/api/media/missing'},{coverImage:'javascript:alert(1)'},{coverImage:'http://insecure.example.com/p.png'},{coverImage:'https://user:password@images.example.com/a.png'},{detailImages:'not-an-array'},{detailImages:Array(21).fill(upload.url)},{detailImages:[{}]},{productId:'product\nattack'},{productId:'x'.repeat(129)},{tags:'[]'}]) {
+    const result=await r(`/admin/courses/${id}`,{method:'PUT',token:admin.token,body:invalid});assert.equal(result.status,400,JSON.stringify(invalid));
+  }
+  assert.equal((await r(`/courses/${id}`)).data.productId,input.productId);
+  await r(`/admin/courses/${id}`,{method:'DELETE',token:admin.token});
+  assert.ok((await r('/admin/courses?includeArchived=true',{token:admin.token})).data.some(course=>course.id===id));
+  assert.ok(!(await r('/admin/courses',{token:admin.token})).data.some(course=>course.id===id));
+});
+
+test('existing production databases migrate artwork and product columns without rewriting content or purchases',async t=>{
+  const {DatabaseSync}=await import('node:sqlite');
+  const dir=mkdtempSync(join(tmpdir(),'zhike-migration-'));const databasePath=join(dir,'legacy.sqlite');
+  const legacy=new DatabaseSync(databasePath);
+  legacy.exec("CREATE TABLE courses (id TEXT PRIMARY KEY,title TEXT NOT NULL,subtitle TEXT NOT NULL,subject TEXT NOT NULL,grade TEXT NOT NULL,type TEXT NOT NULL,price REAL NOT NULL,originalPrice REAL NOT NULL,teacher TEXT NOT NULL,teacherRole TEXT NOT NULL,teacherColor TEXT NOT NULL,description TEXT NOT NULL,coverTheme TEXT NOT NULL,tags TEXT NOT NULL,status TEXT NOT NULL,createdAt TEXT NOT NULL)");
+  insertCourse(legacy,'production-course');legacy.close();
+  const f=await fixture(t,{NODE_ENV:'production',DEMO_MODE:'false',ADMIN_PASSWORD:'Secure-Test-Password-9292',SESSION_SECRET:'a-test-secret-with-64-characters-for-production-configuration-checking'},{databasePath});
+  t.after(()=>rmSync(dir,{recursive:true,force:true}));
+  const response=await f.request('/courses');assert.equal(response.data.length,1);const course=response.data[0];
+  assert.equal(course.id,'production-course');assert.equal(course.title,'测试课程');assert.equal(course.price,299);assert.equal(course.coverImage,'');assert.deepEqual(course.detailImages,[]);assert.equal(course.productId,'');
+  const columns=f.db.prepare('PRAGMA table_info(courses)').all().map(column=>column.name);
+  for(const column of ['coverImage','detailImages','productId'])assert.ok(columns.includes(column));
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS count FROM courses').get().count,1);
+  // Opening the same file again applies migrations idempotently.
+  const second=createApp({...f.settings,uploadsDir:join(dir,'other-uploads')});second.close();
+  assert.equal((await f.request('/courses')).data[0].id,'production-course');
+});
+
+test('private video URLs require the issuing session on every GET, HEAD and Range request',async t=>{
+  const f=await fixture(t),r=f.request;
+  const buyer=(await r('/auth/demo',{method:'POST',body:{}})).data;
+  const sms=(await r('/auth/sms/send',{method:'POST',body:{phone:'13800138024'}})).data;
+  const outsider=(await r('/auth/phone',{method:'POST',body:{phone:'13800138024',code:sms.devCode}})).data;
+  const admin=(await r('/admin/login',{method:'POST',body:{username:'admin',password:'admin123456'}})).data;
+  const video=new FormData();video.append('file',new Blob(['0123456789abcdef'],{type:'video/mp4'}),'private.mp4');
+  const upload=(await r('/admin/uploads',{method:'POST',token:admin.token,body:video})).data;
+  const lesson=(await r('/admin/courses/course-math/lessons',{method:'POST',token:admin.token,body:{title:'收费完整视频',duration:60,videoUrl:upload.url,isPreview:false}})).data;
+  assert.equal((await r(`/lessons/${lesson.id}/play`,{token:outsider.token})).status,403);
+  const order=(await r('/orders',{method:'POST',token:buyer.token,body:{courseId:'course-math'}})).data;await r(`/orders/${order.id}/pay`,{method:'POST',token:buyer.token});
+  const play=await r(`/lessons/${lesson.id}/play`,{token:buyer.token});assert.equal(play.status,200);assert.equal(play.data.playbackAuth,'session');assert.equal(play.data.requiresAuthorizedDownload,true);
+  assert.ok(play.data.expiresAt>Date.now());assert.ok(play.data.expiresAt<=Date.now()+5*60*1000);
+  const cookie=play.headers.get('set-cookie').split(';')[0];assert.match(play.headers.get('set-cookie'),/HttpOnly/);assert.match(play.headers.get('set-cookie'),/SameSite=Lax/);
+  const url=f.base+play.data.url;
+  for(const method of ['GET','HEAD']) {
+    assert.equal((await fetch(url,{method})).status,403);
+    assert.equal((await fetch(url,{method,headers:{Authorization:`Bearer ${outsider.token}`,Range:'bytes=0-3'}})).status,403);
+    assert.equal((await fetch(url,{method,headers:{Cookie:cookie}})).status,200);
+  }
+  const range=await fetch(url,{headers:{Authorization:`Bearer ${buyer.token}`,Range:'bytes=2-5'}});assert.equal(range.status,206);assert.equal(range.headers.get('content-range'),'bytes 2-5/16');assert.equal(await range.text(),'2345');assert.equal(range.headers.get('cache-control'),'private, no-store');
+  assert.equal((await fetch(url,{headers:{Cookie:cookie,Authorization:`Bearer ${outsider.token}`}})).status,403);
+  assert.equal((await fetch(url.replace(/lessonId=[^&]+/,'lessonId=course-math-lesson-1'),{headers:{Cookie:cookie}})).status,403);
+  assert.equal((await fetch(url.replace(/expires=\d+/,`expires=${Date.now()-1000}`),{headers:{Cookie:cookie}})).status,403);
+  assert.equal((await fetch(f.base+upload.url,{headers:{Authorization:`Bearer ${buyer.token}`,Range:'bytes=0-3'}})).status,403);
+  f.db.prepare('DELETE FROM enrollments WHERE userId=? AND courseId=?').run(buyer.user.id,'course-math');
+  assert.equal((await fetch(url,{headers:{Cookie:cookie,Range:'bytes=0-3'}})).status,403);
+  f.db.prepare('INSERT INTO enrollments VALUES(?,?,?)').run(buyer.user.id,'course-math',new Date().toISOString());
+  assert.equal((await fetch(url,{headers:{Cookie:cookie}})).status,200);
+  await r('/auth/logout',{method:'POST',token:buyer.token});
+  assert.equal((await fetch(url,{headers:{Cookie:cookie,Range:'bytes=0-3'}})).status,403);
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS count FROM media_sessions').get().count,0);
+});
+
+test('public preview links recheck preview and source, while remote video streams never expose the source URL',async t=>{
+  const upstreamCalls=[];
+  const f=await fixture(t,{VIDEO_REMOTE_HOSTS:'video.example.com'}, {mediaFetch:async(url,options)=>{
+    upstreamCalls.push({url:String(url),options});
+    if(String(url).includes('redirect'))return new Response(null,{status:302,headers:{location:'https://not-allowed.example.com/private.mp4'}});
+    return new Response(options.method==='HEAD'?null:'remotevideo',{status:options.headers.Range?206:200,headers:{'Content-Type':'video/mp4','Content-Length':11,'Accept-Ranges':'bytes',...(options.headers.Range?{'Content-Range':'bytes 0-10/11'}:{})}});
+  }}),r=f.request;
+  const admin=(await r('/admin/login',{method:'POST',body:{username:'admin',password:'admin123456'}})).data;
+  const lesson=(await r('/admin/courses/course-math/lessons',{method:'POST',token:admin.token,body:{title:'公开试看',duration:60,videoUrl:'https://video.example.com/lesson.mp4',isPreview:true}})).data;
+  const play=await r(`/lessons/${lesson.id}/play`);assert.equal(play.status,200);assert.equal(play.data.playbackAuth,'public');assert.doesNotMatch(JSON.stringify(play.data),/video\.example\.com/);
+  let stream=await fetch(f.base+play.data.url,{headers:{Range:'bytes=0-10'}});assert.equal(stream.status,206);assert.equal(await stream.text(),'remotevideo');assert.equal(upstreamCalls[0].options.headers.Authorization,undefined);assert.equal(upstreamCalls[0].options.headers.Cookie,undefined);assert.equal(upstreamCalls[0].options.redirect,'manual');
+  await r(`/admin/lessons/${lesson.id}`,{method:'PUT',token:admin.token,body:{isPreview:false}});
+  assert.equal((await fetch(f.base+play.data.url,{headers:{Range:'bytes=0-10'}})).status,401);assert.equal(upstreamCalls.length,1);
+  await r(`/admin/lessons/${lesson.id}`,{method:'PUT',token:admin.token,body:{isPreview:true,videoUrl:'https://video.example.com/redirect.mp4'}});
+  assert.equal((await fetch(f.base+play.data.url)).status,403);
+  const redirected=(await r(`/lessons/${lesson.id}/play`)).data;
+  assert.equal((await fetch(f.base+redirected.url)).status,503);
+  assert.equal(upstreamCalls.length,2);
+  await r(`/admin/lessons/${lesson.id}`,{method:'PUT',token:admin.token,body:{videoUrl:'https://unconfigured.example.com/lesson.mp4'}});
+  assert.equal((await r(`/lessons/${lesson.id}/play`)).status,503);
 });
 
 test('production rejects defaults and never fakes SMS, WeChat or payments',async t=>{

@@ -4,22 +4,22 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const flush=()=>new Promise(setImmediate);
 
-async function harness(){
-  const calls=[],payments=[],timers=[],modals=[];
+async function harness(settings={}){
+  const calls=[],payments=[],timers=[],modals=[],virtualPayments=[],logins=[];
   let definition;
   const app={globalData:{token:'test-token'},setUser(){}};
   const request=(path,options)=>new Promise((resolve,reject)=>calls.push({path,options,resolve,reject}));
   vm.runInNewContext(fs.readFileSync(__dirname+'/../../miniprogram/pages/checkout/index.js','utf8'),{
     Page:value=>{definition=value;},
-    require:path=>path.endsWith('/api')?{request,config:()=>Promise.resolve({demoMode:false}),requireLogin:()=>true,failToast:()=>assert.fail('Unexpected error toast')}:{course:value=>value},
+    require:path=>path.endsWith('/api')?{request,config:()=>Promise.resolve({demoMode:false,...settings.config}),requireLogin:()=>true,failToast:()=>assert.fail('Unexpected error toast')}:{course:value=>value},
     getApp:()=>app,setTimeout:callback=>timers.push(callback),
-    wx:{requestPayment:options=>payments.push(options),showModal:options=>modals.push(options)}
+    wx:{requestPayment:options=>payments.push(options),showModal:options=>modals.push(options),login:options=>logins.push(options),requestVirtualPayment:options=>virtualPayments.push(options),canIUse:()=>settings.supported!==false}
   });
   const page=Object.assign({},definition,{data:structuredClone(definition.data),updates:0,setData(value){this.updates++;Object.assign(this.data,value);}});
   const find=path=>calls.filter(call=>call.path===path);
   page.onLoad({courseId:'course'});
   find('/courses/course')[0].resolve({id:'course',price:100,enrolled:false});find('/me')[0].resolve({wechatLinked:true});await flush();
-  return {page,calls,payments,timers,modals,find};
+  return {page,calls,payments,timers,modals,virtualPayments,logins,app,find};
 }
 
 test('leaving checkout before order creation completes never starts payment',async()=>{
@@ -130,3 +130,61 @@ for(const invalidate of ['unload','operation']){
     });
   }
 }
+
+const virtualConfig={paymentMode:'wechat-virtual',virtualPaymentConfigured:true};
+const virtualParams={provider:'wechat-virtual',mode:'short_series_goods',signData:'{"offerId":"1450688403"}',paySig:'server-pay-sig',signature:'server-session-signature'};
+async function startVirtual(h){
+  const paying=h.page.pay();
+  h.find('/orders')[0].resolve({id:'virtual-order',status:'pending'});await flush();
+  assert.equal(h.logins.length,1);h.logins[0].success({code:'fresh-wechat-code'});await flush();
+  assert.deepEqual(JSON.parse(JSON.stringify(h.find('/orders/virtual-order/virtual-pay')[0].options)),{method:'POST',data:{code:'fresh-wechat-code'}});
+  h.find('/orders/virtual-order/virtual-pay')[0].resolve(virtualParams);await flush();
+  assert.equal(h.payments.length,0);assert.equal(h.virtualPayments.length,1);
+  assert.equal(h.virtualPayments[0].signData,virtualParams.signData);
+  return {paying};
+}
+
+test('virtual payment uses a fresh login code and client success never unlocks a pending server order',async()=>{
+  const h=await harness({config:virtualConfig});const {paying}=await startVirtual(h);
+  h.virtualPayments[0].success({});await flush();
+  assert.equal(h.page.data.paid,false);
+  const first=h.find('/orders/virtual-order/sync-payment')[0];assert.equal(first.options.method,'POST');first.resolve({id:'virtual-order',status:'pending'});await flush();
+  h.timers.shift()();await flush();h.find('/orders/virtual-order/sync-payment')[1].resolve({id:'virtual-order',status:'paid'});await paying;
+  assert.equal(h.page.data.paid,true);assert.equal(h.page.data.pending,false);
+});
+
+test('cancelling virtual payment still queries the server and permits retry when it remains unpaid',async()=>{
+  const h=await harness({config:virtualConfig});const {paying}=await startVirtual(h);
+  h.virtualPayments[0].fail({errCode:-2,errMsg:'requestVirtualPayment:fail cancel'});await flush();
+  h.find('/orders/virtual-order/sync-payment')[0].resolve({status:'pending'});await paying;
+  assert.equal(h.page.data.paid,false);assert.equal(h.page.data.pending,false);assert.equal(h.page.data.busy,false);assert.match(h.page.data.error,/已取消支付/);
+});
+
+test('a cancelled virtual callback cannot conceal a payment that the server confirms',async()=>{
+  const h=await harness({config:virtualConfig});const {paying}=await startVirtual(h);
+  h.virtualPayments[0].fail({errCode:-2});await flush();h.find('/orders/virtual-order/sync-payment')[0].resolve({status:'paid'});await paying;
+  assert.equal(h.page.data.paid,true);assert.equal(h.page.data.error,'');
+});
+
+test('an unknown payment outcome requires synchronization before another payment attempt',async()=>{
+  const h=await harness({config:virtualConfig});const {paying}=await startVirtual(h);
+  h.virtualPayments[0].fail({errCode:-1});await flush();h.find('/orders/virtual-order/sync-payment')[0].reject(new Error('offline'));await paying;
+  assert.equal(h.page.data.paid,false);assert.equal(h.page.data.pending,true);assert.match(h.page.data.error,/尚未确认/);
+  const refreshing=h.page.refresh();h.find('/orders/virtual-order/sync-payment')[1].resolve({status:'paid'});await refreshing;
+  assert.equal(h.page.data.paid,true);
+});
+
+test('unsupported WeChat versions and missing virtual configuration do not create payable orders',async()=>{
+  for(const settings of [{config:virtualConfig,supported:false},{config:{paymentMode:'wechat-virtual',virtualPaymentConfigured:false}}]){
+    const h=await harness(settings);await h.page.pay();assert.equal(h.find('/orders').length,0);assert.equal(h.page.data.busy,false);assert.ok(h.page.data.error);
+  }
+});
+
+test('leaving during virtual login and changing accounts before a virtual callback cannot start or unlock payment',async()=>{
+  const h=await harness({config:virtualConfig});const paying=h.page.pay();
+  h.find('/orders')[0].resolve({id:'virtual-order',status:'pending'});await flush();h.page.onUnload();h.logins[0].success({code:'late-code'});await paying;
+  assert.equal(h.find('/orders/virtual-order/virtual-pay').length,0);
+  const another=await harness({config:virtualConfig});const started=await startVirtual(another);another.app.globalData.token='different-user';const updates=another.page.updates;
+  another.virtualPayments[0].success({});await started.paying;
+  assert.equal(another.find('/orders/virtual-order/sync-payment').length,0);assert.equal(another.page.updates,updates);assert.equal(another.page.data.paid,false);
+});

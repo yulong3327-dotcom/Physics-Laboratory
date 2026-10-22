@@ -10,7 +10,7 @@ export function openDatabase(filename, uploadsDir, {seedDemoContent=true}={}) {
   db.exec(`PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, phone TEXT UNIQUE, openid TEXT UNIQUE, name TEXT NOT NULL, createdAt TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, userId TEXT, role TEXT NOT NULL, expires INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS courses (id TEXT PRIMARY KEY, title TEXT NOT NULL, subtitle TEXT NOT NULL DEFAULT '', subject TEXT NOT NULL, grade TEXT NOT NULL, type TEXT NOT NULL, price REAL NOT NULL, originalPrice REAL NOT NULL, teacher TEXT NOT NULL, teacherRole TEXT NOT NULL, teacherColor TEXT NOT NULL, description TEXT NOT NULL, coverTheme TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL, createdAt TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS courses (id TEXT PRIMARY KEY, title TEXT NOT NULL, subtitle TEXT NOT NULL DEFAULT '', subject TEXT NOT NULL, grade TEXT NOT NULL, type TEXT NOT NULL, price REAL NOT NULL, originalPrice REAL NOT NULL, teacher TEXT NOT NULL, teacherRole TEXT NOT NULL, teacherColor TEXT NOT NULL, description TEXT NOT NULL, coverTheme TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL, createdAt TEXT NOT NULL, coverImage TEXT NOT NULL DEFAULT '', detailImages TEXT NOT NULL DEFAULT '[]', productId TEXT NOT NULL DEFAULT '');
     CREATE TABLE IF NOT EXISTS lessons (id TEXT PRIMARY KEY, courseId TEXT NOT NULL REFERENCES courses(id), title TEXT NOT NULL, duration INTEGER NOT NULL, preview INTEGER NOT NULL DEFAULT 0, videoUrl TEXT NOT NULL, sortOrder INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS uploads (id TEXT PRIMARY KEY, storageName TEXT NOT NULL, name TEXT NOT NULL, size INTEGER NOT NULL, mime TEXT NOT NULL, kind TEXT NOT NULL, createdAt TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS materials (id TEXT PRIMARY KEY, courseId TEXT NOT NULL REFERENCES courses(id), name TEXT NOT NULL, uploadId TEXT NOT NULL REFERENCES uploads(id));
@@ -18,6 +18,13 @@ export function openDatabase(filename, uploadsDir, {seedDemoContent=true}={}) {
     CREATE TABLE IF NOT EXISTS enrollments (userId TEXT NOT NULL REFERENCES users(id), courseId TEXT NOT NULL REFERENCES courses(id), createdAt TEXT NOT NULL, PRIMARY KEY (userId,courseId));
     CREATE TABLE IF NOT EXISTS progress (userId TEXT NOT NULL REFERENCES users(id), lessonId TEXT NOT NULL REFERENCES lessons(id), position REAL NOT NULL, duration REAL NOT NULL, completed INTEGER NOT NULL, updatedAt TEXT NOT NULL, PRIMARY KEY (userId,lessonId));
     CREATE TABLE IF NOT EXISTS sms_codes (phone TEXT PRIMARY KEY, hash TEXT NOT NULL, expires INTEGER NOT NULL, attempts INTEGER NOT NULL, sentAt INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS media_sessions (hash TEXT PRIMARY KEY, sessionHash TEXT NOT NULL REFERENCES sessions(hash) ON DELETE CASCADE, expires INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS virtual_payments (id TEXT PRIMARY KEY, orderId TEXT NOT NULL REFERENCES orders(id), openid TEXT NOT NULL, productId TEXT NOT NULL, amount INTEGER NOT NULL, env INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', transactionId TEXT UNIQUE, createdAt TEXT NOT NULL, checkedAt INTEGER NOT NULL DEFAULT 0, deliveredAt TEXT, error TEXT, paidAt TEXT, refundedAt TEXT, duplicatePayment INTEGER NOT NULL DEFAULT 0, remainingAmount INTEGER, refundFinal INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS virtual_refunds (id TEXT PRIMARY KEY,attemptId TEXT NOT NULL REFERENCES virtual_payments(id),refundOrderId TEXT,wxRefundId TEXT,payWxOrderId TEXT,amount INTEGER,expectedAmount INTEGER,linkVerified INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'pending',createdAt TEXT NOT NULL,checkedAt INTEGER NOT NULL DEFAULT 0,error TEXT,UNIQUE(attemptId,refundOrderId),UNIQUE(attemptId,wxRefundId));
+    CREATE INDEX IF NOT EXISTS idx_virtual_refunds_reconcile ON virtual_refunds(status,checkedAt);
+    CREATE INDEX IF NOT EXISTS idx_virtual_payments_order ON virtual_payments(orderId);
+    DROP INDEX IF EXISTS idx_virtual_payments_unique_order;
+    CREATE INDEX IF NOT EXISTS idx_virtual_payments_reconcile ON virtual_payments(status,checkedAt);
     CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(userId);
     CREATE INDEX IF NOT EXISTS idx_lessons_course ON lessons(courseId);
   `);
@@ -25,6 +32,19 @@ export function openDatabase(filename, uploadsDir, {seedDemoContent=true}={}) {
   if(!orderColumns.has('payChannel')) db.exec("ALTER TABLE orders ADD COLUMN payChannel TEXT NOT NULL DEFAULT ''");
   if(!orderColumns.has('paymentCodeUrl')) db.exec('ALTER TABLE orders ADD COLUMN paymentCodeUrl TEXT');
   if(!orderColumns.has('paymentCodeCreatedAt')) db.exec('ALTER TABLE orders ADD COLUMN paymentCodeCreatedAt INTEGER');
+  const virtualColumns=new Set(db.prepare('PRAGMA table_info(virtual_payments)').all().map(column=>column.name));
+  if(!virtualColumns.has('paidAt')) db.exec('ALTER TABLE virtual_payments ADD COLUMN paidAt TEXT');
+  if(!virtualColumns.has('refundedAt')) db.exec('ALTER TABLE virtual_payments ADD COLUMN refundedAt TEXT');
+  if(!virtualColumns.has('duplicatePayment')) db.exec('ALTER TABLE virtual_payments ADD COLUMN duplicatePayment INTEGER NOT NULL DEFAULT 0');
+  if(!virtualColumns.has('remainingAmount')) db.exec('ALTER TABLE virtual_payments ADD COLUMN remainingAmount INTEGER');
+  if(!virtualColumns.has('refundFinal')) db.exec('ALTER TABLE virtual_payments ADD COLUMN refundFinal INTEGER NOT NULL DEFAULT 0');
+  const refundColumns=new Set(db.prepare('PRAGMA table_info(virtual_refunds)').all().map(column=>column.name));
+  if(!refundColumns.has('payWxOrderId'))db.exec('ALTER TABLE virtual_refunds ADD COLUMN payWxOrderId TEXT');
+  db.exec("UPDATE virtual_payments SET paidAt=COALESCE((SELECT paidAt FROM orders WHERE orders.id=virtual_payments.orderId),createdAt) WHERE paidAt IS NULL AND status IN ('paid','refunded')");
+  const courseColumns=new Set(db.prepare('PRAGMA table_info(courses)').all().map(column=>column.name));
+  if(!courseColumns.has('coverImage')) db.exec("ALTER TABLE courses ADD COLUMN coverImage TEXT NOT NULL DEFAULT ''");
+  if(!courseColumns.has('detailImages')) db.exec("ALTER TABLE courses ADD COLUMN detailImages TEXT NOT NULL DEFAULT '[]'");
+  if(!courseColumns.has('productId')) db.exec("ALTER TABLE courses ADD COLUMN productId TEXT NOT NULL DEFAULT ''");
   if (!db.prepare('SELECT id FROM courses LIMIT 1').get() && seedDemoContent) seed(db, uploadsDir);
   return db;
 }
@@ -39,7 +59,7 @@ function seed(db, uploadsDir) {
     ['course-senior', '高三难点专题课—9期', '归纳高频考点，稳步提升解题能力', '数学', '高三', '专题课', 399, 599, '张海鹏', '#e6a842', 'gold', ['高考专题', '重难点突破'], ['导数中的极值点问题','圆锥曲线定点定值','概率统计综合','立体几何证明与计算']],
     ['course-history', '高中历史 · 大单元知识梳理', '连起时间线，建立完整知识框架', '历史', '高三', '专题课', 159, 239, '黄佳敏', '#dd8e7d', 'rose', ['知识框架', '材料分析'], ['中国古代政治制度','近代社会转型','世界现代史线索','史料阅读与论证']],
   ];
-  const insert = db.prepare('INSERT INTO courses VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+  const insert = db.prepare('INSERT INTO courses(id,title,subtitle,subject,grade,type,price,originalPrice,teacher,teacherRole,teacherColor,description,coverTheme,tags,status,createdAt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
   for (const [id,title,subtitle,subject,grade,type,price,originalPrice,teacher,color,theme,tags,lessonTitles] of courses) {
     insert.run(id,title,subtitle,subject,grade,type,price,originalPrice,teacher,'主讲老师',color,`${subtitle}。课程围绕高中阶段的重点知识展开，结合例题讲解、课堂练习和课后讲义，帮助同学循序渐进地掌握知识。当前视频为公开演示素材，正式授课内容请由管理员上传。`,theme,JSON.stringify(tags),'published',now);
     lessonTitles.forEach((name,i) => db.prepare('INSERT INTO lessons VALUES(?,?,?,?,?,?,?)').run(`${id}-lesson-${i+1}`,id,name,1800+i*300,i===0?1:0,'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',i));

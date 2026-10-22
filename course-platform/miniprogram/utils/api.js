@@ -78,4 +78,30 @@ function linkWechat(phoneCode) {
     fail() { reject(new Error('微信授权未完成，请重试')); }
   }));
 }
-module.exports = {request, config, failToast, requireLogin, absoluteUrl, downloadMaterial, linkWechat};
+function removeTempVideo(path) {
+  if (!path || !wx.getFileSystemManager) return;
+  wx.getFileSystemManager().unlink({filePath:path,fail(){}});
+}
+function downloadVideo(path, options) {
+  const settings=options||{},token=settings.token||'',url=absoluteUrl(path);
+  const base=getApp().globalData.apiBaseUrl.replace(/\/$/,'');
+  let task,finished=false,rejectDownload;
+  const promise=new Promise((resolve,reject)=>{
+    rejectDownload=reject;
+    // The login token must only be sent to our own protected media endpoint.
+    if(url.indexOf(base+'/')!==0){finished=true;reject(new Error('视频服务地址未通过验证，请联系老师'));return;}
+    task=wx.downloadFile({url,header:token?{Authorization:'Bearer '+token}:{},timeout:600000,
+      success(response){
+        if(finished){removeTempVideo(response.tempFilePath);return;}
+        finished=true;
+        if(response.statusCode!==200){removeTempVideo(response.tempFilePath);const error=new Error(response.statusCode===403?'购买课程后才能观看本课时':response.statusCode===401?'登录已过期，请重新登录':'视频加载失败，请稍后重试');error.status=response.statusCode;reject(error);return;}
+        if(token!==(getApp().globalData.token||'')){removeTempVideo(response.tempFilePath);reject(new Error('登录身份已变化，请重新打开课程'));return;}
+        resolve(response.tempFilePath);
+      },
+      fail(error){if(finished)return;finished=true;const message=error.errMsg||'';reject(new Error(message.indexOf('timeout')!==-1?'视频加载超时，请检查网络后重试':message.indexOf('space')!==-1?'设备空间不足，请清理空间后重试':'视频加载中断，请检查网络后重试'));}
+    });
+    if(task&&task.onProgressUpdate&&settings.onProgress)task.onProgressUpdate(value=>{if(!finished)settings.onProgress(value);});
+  });
+  return {promise,abort(){if(finished)return;finished=true;if(task&&task.abort)task.abort();const error=new Error('视频加载已取消');error.cancelled=true;rejectDownload(error);}};
+}
+module.exports = {request, config, failToast, requireLogin, absoluteUrl, downloadMaterial, linkWechat, downloadVideo, removeTempVideo};

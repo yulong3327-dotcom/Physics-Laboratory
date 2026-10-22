@@ -7,9 +7,12 @@ import { randomUUID, randomBytes, createHash, createHmac, timingSafeEqual, rando
 import { existsSync } from 'node:fs';
 import { resolve, join, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { openDatabase } from './database.js';
 import { wechatProvider, WechatAuthError, validWechatOpenid } from './wechat.js';
 import { smsProvider } from './sms.js';
+import { virtualPaymentProvider, VirtualPaymentError } from './virtual-payment.js';
 
 const here=dirname(fileURLToPath(import.meta.url));
 const fail=(status,message)=>Object.assign(new Error(message),{status});
@@ -19,6 +22,8 @@ const safeEqual=(a,b)=>{const x=Buffer.from(a),y=Buffer.from(b);return x.length=
 const asyncRoute=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
 const textValue=(value,max=200)=>typeof value==='string'?value.trim().slice(0,max):'';
 const currency=value=>Number.isFinite(Number(value)) && Number(value)>=0 && Number(value)<=999999?Math.round(Number(value)*100)/100:null;
+const savedArray=value=>{if(Array.isArray(value))return value;try{const parsed=JSON.parse(value||'[]');return Array.isArray(parsed)?parsed:[];}catch{return [];}};
+const mediaLifetime=5*60*1000;
 
 export function createApp(options={}) {
   const env={...process.env,...options.env};
@@ -34,6 +39,9 @@ export function createApp(options={}) {
   const db=openDatabase(databasePath,uploadsDir,{seedDemoContent:options.seedDemoContent??demo});
   const wechat=options.wechatProvider||wechatProvider(env);
   const sms=options.smsProvider||smsProvider(env);
+  const virtualPayment=options.virtualPaymentProvider||virtualPaymentProvider(env);
+  const virtualMode=Boolean(env.WECHAT_VIRTUAL_OFFER_ID);
+  const fetchVideo=options.mediaFetch||fetch;
   const smsConfigured=sms.configured;
   const adminHash=bcrypt.hashSync(adminPassword,10);
   const app=express();
@@ -86,7 +94,7 @@ export function createApp(options={}) {
     const lessons=all('SELECT l.id,l.duration,p.position,p.completed FROM lessons l LEFT JOIN progress p ON p.lessonId=l.id AND p.userId=? WHERE l.courseId=?',userId||'',course.id);
     const completedLessons=lessons.filter(l=>l.completed).length;
     const progressPercent=counts.duration?Math.min(100,Math.round(lessons.reduce((sum,l)=>sum+(l.completed?l.duration:Math.min(l.position||0,l.duration)),0)/counts.duration*100)):0;
-    return {...course,tags:JSON.parse(course.tags),teacherTitle:course.teacherRole,teacherAvatar:'',color:course.teacherColor,lessonCount:counts.count,studentCount:count,duration:counts.duration,enrolled:enrolled(userId,course.id),purchased:enrolled(userId,course.id),progressPercent,completedLessons};
+    return {...course,tags:savedArray(course.tags),coverImage:course.coverImage||'',detailImages:savedArray(course.detailImages),productId:course.productId||'',teacherTitle:course.teacherRole,teacherAvatar:'',color:course.teacherColor,lessonCount:counts.count,studentCount:count,duration:counts.duration,enrolled:enrolled(userId,course.id),purchased:enrolled(userId,course.id),progressPercent,completedLessons};
   }
   function lessonShape(lesson,canWatch=false) {return {...lesson,preview:Boolean(lesson.preview),isPreview:Boolean(lesson.preview),freePreview:Boolean(lesson.preview),sort:lesson.sortOrder,videoUrl:canWatch?lesson.videoUrl:''};}
   function materialShape(material) {return {id:material.id,courseId:material.courseId,name:material.name,title:material.name,fileName:material.fileName,size:material.size,mimeType:material.mime,type:material.mime,createdAt:material.createdAt};}
@@ -103,6 +111,12 @@ export function createApp(options={}) {
     const {paymentCodeUrl,...safeOrder}=order;
     return {...safeOrder,paymentChannel:order.payChannel||null,amount:order.amount/100,amountFen:order.amount,courseTitle:course?.title||'已归档课程',userName:user?.name||'',phone:user?.phone||''};
   }
+  function adminOrderShape(order) {
+    const payments=all('SELECT id,status,transactionId,amount,createdAt,paidAt,refundedAt,deliveredAt,duplicatePayment,remainingAmount,refundFinal,error FROM virtual_payments WHERE orderId=? ORDER BY createdAt,id',order.id);
+    const duplicatePayments=payments.filter(payment=>payment.duplicatePayment);
+    const refunds=all('SELECT r.* FROM virtual_refunds r JOIN virtual_payments p ON p.id=r.attemptId WHERE p.orderId=? ORDER BY r.createdAt,r.id',order.id);
+    return {...orderShape(order),virtualPayments:payments.map(payment=>({...payment,amountFen:payment.amount,amount:payment.amount/100,duplicatePayment:Boolean(payment.duplicatePayment)})),virtualRefunds:refunds,duplicatePayment:duplicatePayments.length>0,duplicatePaymentCount:duplicatePayments.length,paymentReviewRequired:payments.filter(payment=>payment.status==='paid').length>1};
+  }
   function ownedOrder(req) {
     const order=get('SELECT * FROM orders WHERE id=? AND userId=?',req.params.id,req.auth.userId);
     if(!order) throw fail(404,'订单不存在');return order;
@@ -118,8 +132,192 @@ export function createApp(options={}) {
     } catch(error) {db.exec('ROLLBACK');throw error;}
   }
 
+  // Attempt IDs, amounts and owners survive process restarts. Client callbacks
+  // only wake reconciliation; access is granted from a server-side query result.
+  const virtualChecks=new Map(),virtualRefundChecks=new Map(),virtualOrderLocks=new Map();let closed=false,reconciliationRunning=false;
+  const virtualAttempts=orderId=>all('SELECT * FROM virtual_payments WHERE orderId=? ORDER BY createdAt,id',orderId);
+  const hasVirtualPayment=order=>order.payChannel==='wechat-virtual' || Boolean(get('SELECT 1 FROM virtual_payments WHERE orderId=?',order.id));
+  const virtualFailure=error=>error instanceof VirtualPaymentError?error:fail(502,'微信虚拟支付服务暂时不可用，请稍后重试');
+  async function withVirtualOrderLock(orderId,action) {
+    const previous=virtualOrderLocks.get(orderId)||Promise.resolve();
+    const operation=previous.catch(()=>{}).then(action);virtualOrderLocks.set(orderId,operation);
+    try{return await operation;}finally{if(virtualOrderLocks.get(orderId)===operation)virtualOrderLocks.delete(orderId);}
+  }
+  function reserveVirtualChannel(order) {
+    const latest=get('SELECT * FROM orders WHERE id=?',order.id);
+    if(latest.status!=='pending')throw fail(409,'订单状态已变化，请刷新支付结果');
+    if(latest.payChannel && latest.payChannel!=='wechat-virtual')throw fail(409,'此订单已选择其他支付渠道，请继续原支付流程');
+    // Reserve synchronously before any network operation can race another channel.
+    run("UPDATE orders SET payChannel='wechat-virtual' WHERE id=?",order.id);
+  }
+  function claimVirtualAttempt(order,user,course) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const latest=get('SELECT * FROM orders WHERE id=?',order.id);
+      if(latest.status!=='pending')throw fail(409,'订单状态已变化，请刷新支付结果');
+      if(latest.payChannel && latest.payChannel!=='wechat-virtual')throw fail(409,'此订单已选择其他支付渠道，请继续原支付流程');
+      const id=`VP${randomBytes(14).toString('hex')}`;
+      run('INSERT INTO virtual_payments(id,orderId,openid,productId,amount,env,status,createdAt) VALUES(?,?,?,?,?,?,?,?)',id,order.id,user.openid,course.productId,order.amount,virtualPayment.envNumber,'pending',now());
+      const attempt=get('SELECT * FROM virtual_payments WHERE id=?',id);
+      run("UPDATE orders SET payChannel='wechat-virtual' WHERE id=?",order.id);
+      db.exec('COMMIT');return attempt;
+    }catch(error){db.exec('ROLLBACK');throw error;}
+  }
+  function recordVirtualPayment(attempt,transactionId,refunded,{finalRefund=false,remainingAmount}={}) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const current=get('SELECT * FROM virtual_payments WHERE id=?',attempt.id),order=get('SELECT * FROM orders WHERE id=?',attempt.orderId);
+      if(order.payChannel!=='wechat-virtual')throw fail(409,'订单支付渠道不一致，请联系管理员核查');
+      if(!refunded && current.status==='refunded' && current.refundFinal){db.exec('COMMIT');return false;}
+      const duplicate=Boolean(get('SELECT 1 FROM virtual_payments WHERE orderId=? AND id!=? AND transactionId IS NOT NULL',order.id,attempt.id));
+      run("UPDATE virtual_payments SET status=?,transactionId=?,paidAt=COALESCE(paidAt,?),refundedAt=CASE WHEN ? THEN COALESCE(refundedAt,?) ELSE refundedAt END,duplicatePayment=MAX(duplicatePayment,?) WHERE id=?",refunded?'refunded':'paid',transactionId,now(),refunded?1:0,now(),!current.transactionId&&duplicate?1:0,attempt.id);
+      run('UPDATE virtual_payments SET remainingAmount=COALESCE(?,remainingAmount),refundFinal=MAX(refundFinal,?) WHERE id=?',remainingAmount??null,finalRefund?1:0,attempt.id);
+      const active=get("SELECT 1 FROM virtual_payments WHERE orderId=? AND status='paid'",order.id);
+      run('UPDATE orders SET status=?,transactionId=COALESCE(transactionId,?),paidAt=COALESCE(paidAt,?) WHERE id=?',active?'paid':'refunded',transactionId,now(),order.id);
+      if(active)enroll(order.userId,order.courseId);
+      else if(!get("SELECT 1 FROM orders WHERE userId=? AND courseId=? AND status='paid' AND id!=?",order.userId,order.courseId,order.id))run('DELETE FROM enrollments WHERE userId=? AND courseId=?',order.userId,order.courseId);
+      db.exec('COMMIT');return !refunded;
+    }catch(error){db.exec('ROLLBACK');throw error;}
+  }
+  async function checkVirtualAttempt(attemptId) {
+    if(virtualChecks.has(attemptId))return virtualChecks.get(attemptId);
+    const checking=(async()=>{
+      const attempt=get('SELECT * FROM virtual_payments WHERE id=?',attemptId);
+      if(!attempt)throw fail(404,'虚拟支付记录不存在');
+      if(attempt.env!==virtualPayment.envNumber)throw fail(503,'此订单的支付环境与当前配置不一致，请联系管理员核查');
+      try {
+        const remote=await virtualPayment.queryOrder({openid:attempt.openid,orderId:attempt.id});
+        if(closed)throw fail(503,'服务正在重启，请稍后查询');
+        const order=get('SELECT * FROM orders WHERE id=?',attempt.orderId);
+        const status=remote?.status;
+        if(status===0 && !attempt.transactionId && ['',attempt.id].includes(remote.order_id) && [0,attempt.env+1].includes(remote.env_type) && [0,attempt.amount].includes(remote.order_fee)) {
+          run("UPDATE virtual_payments SET status='not_created',checkedAt=?,error=NULL WHERE id=?",Date.now(),attempt.id);return order;
+        }
+        if(!order || order.amount!==attempt.amount || remote?.order_id!==attempt.id || remote.env_type!==attempt.env+1 || ![0,7].includes(remote.order_type) || remote.order_fee!==attempt.amount || !Number.isInteger(status) || status<0 || status>10)throw fail(502,'微信支付订单信息与本地订单不一致，请联系管理员核查');
+        if([2,3,4,5,7,8].includes(status) && remote.paid_fee!==attempt.amount)throw fail(502,'微信支付到账金额与订单不一致，请联系管理员核查');
+        if([2,3,4,5,7,8].includes(status) && (typeof remote.wx_order_id!=='string' || !remote.wx_order_id || remote.wx_order_id.length>128 || (attempt.transactionId && attempt.transactionId!==remote.wx_order_id) || get('SELECT 1 FROM virtual_payments WHERE transactionId=? AND id!=?',remote.wx_order_id,attempt.id) || get('SELECT 1 FROM orders WHERE transactionId=? AND id!=?',remote.wx_order_id,order.id)))throw fail(502,'微信支付交易标识不一致，请联系管理员核查');
+        if(remote.left_fee!==undefined && (!Number.isSafeInteger(remote.left_fee) || remote.left_fee<0 || remote.left_fee>attempt.amount))throw fail(502,'微信支付订单剩余金额无效，请联系管理员核查');
+        run('UPDATE virtual_payments SET checkedAt=?,error=NULL WHERE id=?',Date.now(),attempt.id);
+        if([2,3,4,5,7,8].includes(status)) {
+          const fullyRefunded=remote.left_fee===0 || (status===8 && remote.refund_fee===attempt.amount && remote.left_fee===undefined);
+          if(fullyRefunded) {
+            recordVirtualPayment(attempt,remote.wx_order_id,true,{finalRefund:status===8,remainingAmount:0});
+            return get('SELECT * FROM orders WHERE id=?',order.id);
+          }
+          // Refund finality belongs to the attempt. A different late payment is
+          // retained and may restore entitlement, even on a refunded business order.
+          if(!recordVirtualPayment(attempt,remote.wx_order_id,false,{remainingAmount:remote.left_fee}))return get('SELECT * FROM orders WHERE id=?',order.id);
+          if([4,5,7,8].includes(status))run('UPDATE virtual_payments SET deliveredAt=COALESCE(deliveredAt,?) WHERE id=?',now(),attempt.id);
+          else if(!attempt.deliveredAt) {
+            await virtualPayment.notifyDelivered({openid:attempt.openid,orderId:attempt.id,wxOrderId:remote.wx_order_id});
+            if(closed)throw fail(503,'服务正在重启，请稍后查询');
+            run('UPDATE virtual_payments SET deliveredAt=? WHERE id=?',now(),attempt.id);
+          }
+        }else if(status===6 && !['paid','refunded'].includes(attempt.status)) {
+          // Closing one attempt must leave the business order available to retry.
+          run("UPDATE virtual_payments SET status='closed' WHERE id=?",attempt.id);
+        }
+        return get('SELECT * FROM orders WHERE id=?',order.id);
+      }catch(error) {
+        if(!closed && error?.code==='WECHAT_VIRTUAL_ORDER_NOT_FOUND' && !attempt.transactionId && !['paid','refunded'].includes(attempt.status)) {
+          run("UPDATE virtual_payments SET status='not_created',checkedAt=?,error=NULL WHERE id=?",Date.now(),attempt.id);return get('SELECT * FROM orders WHERE id=?',attempt.orderId);
+        }
+        if(!closed)run('UPDATE virtual_payments SET checkedAt=?,error=? WHERE id=?',Date.now(),'RECONCILIATION_REQUIRED',attempt.id);
+        throw virtualFailure(error);
+      }
+    })();
+    virtualChecks.set(attemptId,checking);
+    try{return await checking;}finally{virtualChecks.delete(attemptId);}
+  }
+  function claimVirtualRefund(attempt,message) {
+    const merchantId=message.MchRefundId||null,wxId=message.WxRefundId||null;
+    if(merchantId!==null && (typeof merchantId!=='string' || !/^[A-Za-z0-9_-]{8,32}$/.test(merchantId)))throw fail(400,'微信退款通知单号无效');
+    if(wxId!==null && (typeof wxId!=='string' || !/^[A-Za-z0-9_-]{1,128}$/.test(wxId)))throw fail(400,'微信退款通知单号无效');
+    if(!merchantId && !wxId)return null;
+    const trusted=message.bodyAuthenticated===true;
+    let expectedAmount=null;
+    if(message.RefundFee!==undefined) {
+      if(!/^\d+$/.test(String(message.RefundFee)) || !Number.isSafeInteger(Number(message.RefundFee)) || Number(message.RefundFee)<=0 || Number(message.RefundFee)>attempt.amount)throw fail(400,'微信退款通知金额无效');
+      if(trusted)expectedAmount=Number(message.RefundFee);
+    }
+    const payWx=trusted&&typeof message.WxOrderId==='string'?message.WxOrderId:null;
+    if(payWx && attempt.transactionId && payWx!==attempt.transactionId)throw fail(400,'微信退款通知原交易不一致');
+    const existing=get('SELECT * FROM virtual_refunds WHERE attemptId=? AND ((? IS NOT NULL AND refundOrderId=?) OR (? IS NOT NULL AND wxRefundId=?))',attempt.id,merchantId,merchantId,wxId,wxId);
+    if(existing) {
+      if((existing.refundOrderId && merchantId && existing.refundOrderId!==merchantId) || (existing.wxRefundId && wxId && existing.wxRefundId!==wxId) || (existing.expectedAmount && expectedAmount && existing.expectedAmount!==expectedAmount))throw fail(400,'微信退款通知与已有记录不一致');
+      run('UPDATE virtual_refunds SET refundOrderId=COALESCE(refundOrderId,?),wxRefundId=COALESCE(wxRefundId,?),payWxOrderId=COALESCE(payWxOrderId,?),expectedAmount=COALESCE(expectedAmount,?),linkVerified=MAX(linkVerified,?) WHERE id=?',merchantId,wxId,payWx,expectedAmount,trusted?1:0,existing.id);
+      return existing.id;
+    }
+    const id=`VR${randomBytes(14).toString('hex')}`;
+    run('INSERT INTO virtual_refunds(id,attemptId,refundOrderId,wxRefundId,payWxOrderId,expectedAmount,linkVerified,createdAt) VALUES(?,?,?,?,?,?,?,?)',id,attempt.id,merchantId,wxId,payWx,expectedAmount,trusted?1:0,now());
+    return id;
+  }
+  async function checkVirtualRefund(refundId) {
+    if(virtualRefundChecks.has(refundId))return virtualRefundChecks.get(refundId);
+    const checking=(async()=>{
+      const refund=get('SELECT * FROM virtual_refunds WHERE id=?',refundId),attempt=get('SELECT p.* FROM virtual_payments p JOIN virtual_refunds r ON r.attemptId=p.id WHERE r.id=?',refundId);
+      if(!refund || !attempt)throw fail(404,'微信退款记录不存在');
+      try {
+        // The payment balance independently verifies the entitlement, including
+        // when a plaintext notification cannot authenticate its claimed linkage.
+        await checkVirtualAttempt(attempt.id);
+        const current=get('SELECT * FROM virtual_payments WHERE id=?',attempt.id);
+        if(refund.payWxOrderId && refund.payWxOrderId!==current.transactionId)throw fail(502,'微信退款对应的原交易不一致');
+        const remote=await virtualPayment.queryOrder({openid:attempt.openid,...(refund.refundOrderId?{orderId:refund.refundOrderId}:{wxOrderId:refund.wxRefundId})});
+        if(closed)throw fail(503,'服务正在重启，请稍后查询');
+        if(!remote || (refund.refundOrderId && remote.order_id!==refund.refundOrderId) || typeof remote.order_id!=='string' || !/^[A-Za-z0-9_-]{8,32}$/.test(remote.order_id) || remote.env_type!==attempt.env+1 || ![1,8].includes(remote.order_type) || ![0,1,5,7,8].includes(remote.status) || !Number.isSafeInteger(remote.refund_fee) || remote.refund_fee<=0 || remote.refund_fee>attempt.amount || typeof remote.wx_order_id!=='string' || !remote.wx_order_id || remote.wx_order_id.length>128 || (refund.wxRefundId && remote.wx_order_id!==refund.wxRefundId) || (refund.expectedAmount && remote.refund_fee!==refund.expectedAmount))throw fail(502,'微信退款单信息与本地记录不一致');
+        if((remote.pay_order_id!==undefined && remote.pay_order_id!==attempt.id) || (remote.pay_wx_order_id!==undefined && remote.pay_wx_order_id!==current.transactionId))throw fail(502,'微信退款单归属不一致');
+        const linked=Boolean(refund.linkVerified || remote.pay_order_id===attempt.id || (current.transactionId && remote.pay_wx_order_id===current.transactionId));
+        const status=remote.status===8?'refunded':remote.status===7?'failed':remote.status===5?'processing':'pending';
+        run('UPDATE virtual_refunds SET refundOrderId=?,wxRefundId=?,amount=?,linkVerified=?,status=?,checkedAt=?,error=NULL WHERE id=?',remote.order_id,remote.wx_order_id,remote.refund_fee,linked?1:0,status,Date.now(),refund.id);
+        const completed=get("SELECT COALESCE(SUM(amount),0) AS amount FROM virtual_refunds WHERE attemptId=? AND status='refunded' AND linkVerified=1",attempt.id).amount;
+        if(completed>attempt.amount)throw fail(502,'微信退款累计金额超过支付金额，请联系管理员核查');
+        if(completed===attempt.amount && current.transactionId)recordVirtualPayment(current,current.transactionId,true,{finalRefund:true,remainingAmount:0});
+        // State 5 is still processing. Keep querying through state 7 or 8, and
+        // refresh the payment balance after each observed refund transition.
+        else await checkVirtualAttempt(attempt.id);
+        return get('SELECT * FROM orders WHERE id=?',attempt.orderId);
+      }catch(error) {
+        if(!closed)run('UPDATE virtual_refunds SET checkedAt=?,error=? WHERE id=?',Date.now(),'RECONCILIATION_REQUIRED',refund.id);
+        throw virtualFailure(error);
+      }
+    })();
+    virtualRefundChecks.set(refundId,checking);
+    try{return await checking;}finally{virtualRefundChecks.delete(refundId);}
+  }
+  async function checkVirtualOrder(orderId) {
+    let failure;
+    // Every prior attempt must be checked before issuing another outTradeNo.
+    // Continue after an error so a separate paid attempt can still grant access.
+    for(const attempt of virtualAttempts(orderId)) {
+      try{await checkVirtualAttempt(attempt.id);}catch(error){failure ||= error;}
+    }
+    for(const refund of all("SELECT r.id FROM virtual_refunds r JOIN virtual_payments p ON p.id=r.attemptId WHERE p.orderId=? AND r.status IN ('pending','processing')",orderId)) {
+      try{await checkVirtualRefund(refund.id);}catch(error){failure ||= error;}
+    }
+    const order=get('SELECT * FROM orders WHERE id=?',orderId);
+    if(failure)throw failure;
+    return order;
+  }
+  async function reconcileVirtualPayments({force=false}={}) {
+    if(closed || reconciliationRunning || !virtualPayment.configured)return;
+    reconciliationRunning=true;
+    try {
+      const timestamp=Date.now(),pendingDelay=force?0:60000,paidDelay=force?0:15*60000;
+      const attempts=all("SELECT id FROM virtual_payments WHERE env=? AND (((status='pending' OR (status='refunded' AND refundFinal=0) OR (status='paid' AND deliveredAt IS NULL)) AND checkedAt<=?) OR ((status IN ('closed','not_created') OR (status='paid' AND deliveredAt IS NOT NULL)) AND checkedAt<=?)) ORDER BY checkedAt,createdAt LIMIT 50",virtualPayment.envNumber,force?timestamp:timestamp-pendingDelay,force?timestamp:timestamp-paidDelay);
+      for(const attempt of attempts) {
+        if(closed)break;
+        try{await checkVirtualAttempt(attempt.id);}catch{/* Persistent rows are retried by the next scheduled run. */}
+      }
+      for(const refund of all("SELECT r.id FROM virtual_refunds r JOIN virtual_payments p ON p.id=r.attemptId WHERE p.env=? AND (r.status IN ('pending','processing') OR r.error IS NOT NULL) AND r.checkedAt<=? ORDER BY r.checkedAt,r.createdAt LIMIT 50",virtualPayment.envNumber,force?timestamp:timestamp-pendingDelay)) {
+        if(closed)break;
+        try{await checkVirtualRefund(refund.id);}catch{/* Persisted refund transitions retry after restart as well. */}
+      }
+    }finally{reconciliationRunning=false;}
+  }
+
   app.get('/api/health',(req,res)=>res.json({ok:true,mode:demo?'demo':'production'}));
-  app.get('/api/config',(req,res)=>res.json({demoMode:demo,wechatConfigured:wechat.appConfigured,smsConfigured,paymentConfigured:wechat.payConfigured,mode:demo?'development':'production',devLoginEnabled:demo,smsEnabled:smsConfigured||demo,wechatEnabled:wechat.appConfigured,paymentEnabled:wechat.payConfigured}));
+  app.get('/api/config',(req,res)=>res.json({demoMode:demo,wechatConfigured:wechat.appConfigured,smsConfigured,paymentConfigured:wechat.payConfigured,virtualPaymentConfigured:virtualPayment.configured,paymentMode:virtualMode?'wechat-virtual':'wechat',mode:demo?'development':'production',devLoginEnabled:demo,smsEnabled:smsConfigured||demo,wechatEnabled:wechat.appConfigured,paymentEnabled:virtualMode?virtualPayment.configured:wechat.payConfigured}));
   const demoLogin=(req,res)=>{ensureDemo();let user=get('SELECT * FROM users WHERE openid=?','demo-student');if(!user) user=createUser({openid:'demo-student',name:'林同学'});loginResponse(user,res);};
   app.post(['/api/auth/demo','/api/auth/dev'],demoLogin);
   app.post('/api/auth/sms/send',smsLimit,asyncRoute(async(req,res)=>{
@@ -215,13 +413,51 @@ export function createApp(options={}) {
     res.status(201).json(orderShape(order));
   });
   app.get('/api/orders/:id',student,(req,res)=>res.json(orderShape(ownedOrder(req))));
-  const demoPay=(req,res)=>{ensureDemo();const order=ownedOrder(req);if(order.status!=='paid') findCourse(order.courseId);res.json({demo:true,order:orderShape(settleOrder(order,`demo-${order.id}`))});};
+  app.post('/api/orders/:id/virtual-pay',student,loginLimit,asyncRoute(async(req,res)=>{
+    if(!virtualPayment.configured)throw fail(503,'微信虚拟支付尚未配置完整，请联系管理员');
+    const order=ownedOrder(req);
+    if(order.status==='paid')return res.json({paid:true,order:orderShape(order),provider:'wechat-virtual'});
+    if(order.status!=='pending')throw fail(409,'订单状态不能支付，请重新选课下单');
+    const user=get('SELECT * FROM users WHERE id=?',req.auth.userId),course=findCourse(order.courseId);
+    if(!validWechatOpenid(user?.openid) || user.openid==='demo-student')throw fail(409,'请先使用微信登录或在账号中关联微信');
+    if(typeof req.body.code!=='string' || !req.body.code || req.body.code.length>256 || /\s/.test(req.body.code))throw fail(400,'请提供新的微信登录 code 以确认支付身份');
+    if(!course.productId)throw fail(503,'此课程尚未配置微信虚拟支付商品，请联系管理员');
+    if(order.amount!==Math.round(course.price*100) || order.amount<=0)throw fail(409,'课程价格已变化，请联系管理员核查原订单');
+    reserveVirtualChannel(order);
+    await withVirtualOrderLock(order.id,async()=>{
+      const checked=await checkVirtualOrder(order.id);
+      if(checked.status==='paid')return res.json({paid:true,order:orderShape(checked),provider:'wechat-virtual'});
+      if(checked.status!=='pending')throw fail(409,'订单状态已变化，请先查询支付结果');
+      // session_key is used only in this request and is never persisted or returned.
+      let session;
+      try{session=await wechat.login(req.body.code);}catch(error){throw error instanceof WechatAuthError?error:fail(502,'微信支付身份验证暂时不可用，请重新授权');}
+      if(!validWechatOpenid(session?.openid) || session.openid!==user.openid)throw fail(403,'当前微信账号与订单购买账号不一致，请使用原微信账号授权');
+      if(!session.session_key)throw fail(401,'微信登录态已失效，请重新授权后支付');
+      const latest=get('SELECT * FROM orders WHERE id=?',order.id);
+      if(latest.status==='paid')return res.json({paid:true,order:orderShape(latest),provider:'wechat-virtual'});
+      if(latest.status!=='pending')throw fail(409,'订单状态已变化，请先查询支付结果');
+      const attempt=claimVirtualAttempt(latest,user,course);
+      try {
+        const paymentParams=virtualPayment.createPayment({attemptId:attempt.id,productId:attempt.productId,amount:attempt.amount,openid:attempt.openid,sessionKey:session.session_key,attach:JSON.stringify({orderId:order.id})});
+        res.setHeader('Cache-Control','private, no-store');res.json({...paymentParams,provider:'wechat-virtual'});
+      }catch(error){throw virtualFailure(error);}
+    });
+  }));
+  app.post('/api/orders/:id/sync-payment',student,asyncRoute(async(req,res)=>{
+    const order=ownedOrder(req);
+    if(!virtualAttempts(order.id).length)return res.json({order:orderShape(order)});
+    if(!virtualPayment.configured)throw fail(503,'微信虚拟支付尚未配置完整，请联系管理员');
+    const updated=await checkVirtualOrder(order.id);
+    res.json({order:orderShape(updated)});
+  }));
+  const demoPay=(req,res)=>{ensureDemo();const order=ownedOrder(req);if(hasVirtualPayment(order))throw fail(409,'此订单已发起微信虚拟支付，请查询支付结果');if(order.status!=='paid') findCourse(order.courseId);res.json({demo:true,order:orderShape(settleOrder(order,`demo-${order.id}`))});};
   app.post(['/api/orders/:id/demo-pay','/api/orders/:id/dev-pay'],student,demoPay);
   app.post('/api/orders/:id/cancel',student,asyncRoute(async(req,res)=>{
     const order=ownedOrder(req);
     if(order.status==='paid')return res.json({paid:true,order:orderShape(order)});
     if(order.status==='cancelled')return res.json({cancelled:true,order:orderShape(order)});
     if(order.status!=='pending')throw fail(409,'订单状态不能取消');
+    if(hasVirtualPayment(order))throw fail(409,'微信虚拟支付已发起，当前无法安全关闭支付单，请先查询支付结果');
     if(!demo && order.payChannel) {
       if(!wechat.closePayment)throw fail(503,'当前微信支付适配器不支持关闭订单');
       try {await wechat.closePayment(order);} catch(error) {throw fail(502,error.message);}
@@ -233,14 +469,19 @@ export function createApp(options={}) {
   app.post('/api/orders/:id/pay',student,asyncRoute(async(req,res)=>{
     if(demo) return demoPay(req,res);
     const order=ownedOrder(req);if(order.status==='paid') return res.json({order:orderShape(order),paid:true});
+    if(hasVirtualPayment(order))throw fail(409,'此订单已选择微信虚拟支付，请继续原支付流程');
+    if(order.status!=='pending')throw fail(409,'订单状态不能支付');
     if(order.payChannel==='native')throw fail(409,'此订单已选择微信扫码支付，请继续使用二维码付款');
     const user=get('SELECT * FROM users WHERE id=?',req.auth.userId),course=findCourse(order.courseId);
     if(!wechat.payConfigured) throw fail(503,'微信支付商户参数尚未配置完整，当前无法付款');
-    try {const params=await wechat.createPayment(order,user.openid,course.title);run("UPDATE orders SET payChannel='jsapi' WHERE id=? AND status='pending'",order.id);res.json({paymentParams:params,payment:{mode:'wechat',params}});} catch(error) {throw fail(502,error.message);}
+    run("UPDATE orders SET payChannel='jsapi' WHERE id=? AND status='pending'",order.id);
+    try {const params=await wechat.createPayment(order,user.openid,course.title);res.json({paymentParams:params,payment:{mode:'wechat',params}});} catch(error) {throw fail(502,'微信支付暂时不可用，请稍后重试');}
   }));
   app.post('/api/orders/:id/native-pay',student,asyncRoute(async(req,res)=>{
     if(demo) throw fail(503,'演示环境不提供真实微信扫码支付');
     const order=ownedOrder(req);if(order.status==='paid')return res.json({order:orderShape(order),paid:true});
+    if(hasVirtualPayment(order))throw fail(409,'此订单已选择微信虚拟支付，请继续原支付流程');
+    if(order.status!=='pending')throw fail(409,'订单状态不能支付');
     if(order.payChannel==='jsapi')throw fail(409,'此订单已选择小程序内微信支付，请继续在小程序完成付款');
     const course=findCourse(order.courseId);
     if(!wechat.payConfigured)throw fail(503,'微信 Native 扫码支付未配置商户证书，请联系管理员');
@@ -262,6 +503,7 @@ export function createApp(options={}) {
       if(payment.mchid!==env.WECHAT_MCH_ID || payment.appid!==env.WECHAT_APP_ID || payment.trade_state!=='SUCCESS' || payment.amount?.currency!=='CNY') throw fail(400,'支付通知商户或状态无效');
       const order=get('SELECT * FROM orders WHERE id=?',payment.out_trade_no);
       if(!order || order.amount!==payment.amount.total || !payment.transaction_id) throw fail(400,'支付通知订单或金额不一致');
+      if(hasVirtualPayment(order))throw fail(409,'此订单已选择虚拟支付，不能使用普通微信支付通知开课');
       const expectedTradeType=order.payChannel==='native'?'NATIVE':'JSAPI';
       if(payment.trade_type!==expectedTradeType)throw fail(400,'支付通知交易类型与订单不一致');
       const user=get('SELECT openid FROM users WHERE id=?',order.userId);
@@ -271,28 +513,122 @@ export function createApp(options={}) {
       settleOrder(order,payment.transaction_id);res.status(200).json({code:'SUCCESS',message:'成功'});
     } catch(error) {res.status(error.status||400).json({code:'FAIL',message:error.message});}
   });
+  app.get('/api/payments/wechat-virtual/notify',(req,res,next)=>{
+    try{res.type('text/plain').send(virtualPayment.verifyChallenge(req.query));}catch(error){next(virtualFailure(error));}
+  });
+  app.post('/api/payments/wechat-virtual/notify',express.text({type:['application/xml','text/xml','text/plain'],limit:'256kb'}),async(req,res)=>{
+    try {
+      const message=virtualPayment.verifyMessage(req.query,req.body);
+      if(!['xpay_goods_deliver_notify','xpay_refund_notify'].includes(message.Event))return res.type('application/xml').send('<xml><ErrCode>0</ErrCode><ErrMsg><![CDATA[success]]></ErrMsg></xml>');
+      const attemptId=message.OutTradeNo||message.MchOrderId;
+      if(typeof attemptId!=='string')throw fail(400,'微信支付通知缺少订单号');
+      const attempt=get('SELECT * FROM virtual_payments WHERE id=?',attemptId);
+      if(!attempt)throw fail(404,'微信支付通知对应的订单不存在');
+      if(message.OpenId!==undefined && message.OpenId!==attempt.openid)throw fail(400,'微信支付通知用户不一致');
+      if(message.Env!==undefined && String(attempt.env)!==message.Env)throw fail(400,'微信支付通知环境不一致');
+      if(message.Event==='xpay_refund_notify') {
+        const refundId=claimVirtualRefund(attempt,message);
+        if(refundId)await checkVirtualRefund(refundId);else await checkVirtualAttempt(attempt.id);
+      }else await checkVirtualAttempt(attempt.id);
+      res.type('application/xml').send('<xml><ErrCode>0</ErrCode><ErrMsg><![CDATA[success]]></ErrMsg></xml>');
+    }catch(error) {
+      const status=error instanceof VirtualPaymentError?error.status:error.status||502;
+      res.status(status).type('application/xml').send('<xml><ErrCode>1</ErrCode><ErrMsg><![CDATA[retry]]></ErrMsg></xml>');
+    }
+  });
 
-  function getAccessibleLesson(req) {
-    const lesson=get('SELECT * FROM lessons WHERE id=?',req.params.id);if(!lesson) throw fail(404,'课时不存在');
-    const adminAccess=req.auth?.role==='admin';const course=findCourse(lesson.courseId,adminAccess,req.auth?.userId);
-    if(!adminAccess && !lesson.preview && !enrolled(req.auth?.userId,course.id) && course.price!==0) throw fail(req.auth?403:401,'购买课程后即可学习本课时');
+  function accessibleLesson(id,identity) {
+    const lesson=get('SELECT * FROM lessons WHERE id=?',id);if(!lesson) throw fail(404,'课时不存在');
+    const adminAccess=identity?.role==='admin';const course=findCourse(lesson.courseId,adminAccess,identity?.userId);
+    if(!adminAccess && !lesson.preview && !enrolled(identity?.userId,course.id) && course.price!==0) throw fail(identity?403:401,'购买课程后即可学习本课时');
     return lesson;
   }
-  function signedMedia(uploadId) {
-    const expires=String(Date.now()+60*60*1000);const signature=createHmac('sha256',secret).update(`${uploadId}:${expires}`).digest('hex');
-    return `/api/media/${uploadId}?expires=${expires}&signature=${signature}`;
+  const getAccessibleLesson=req=>accessibleLesson(req.params.id,req.auth);
+  function uploadedVideoId(lesson) {
+    const match=lesson.videoUrl.match(/^(?:upload:|\/api\/media\/)([a-z0-9-]+)$/i);
+    return match?.[1]||null;
   }
-  function videoUrl(lesson) {
-    if(lesson.videoUrl.startsWith('upload:')) return signedMedia(lesson.videoUrl.slice(7));
-    const match=lesson.videoUrl.match(/^\/api\/media\/([^?]+)/);if(match) return signedMedia(match[1]);
-    return lesson.videoUrl;
+  const sessionBinding=identity=>createHmac('sha256',secret).update(`media-session:${identity.hash}`).digest('hex');
+  function mediaCookieSession(req) {
+    const cookie=req.headers.cookie?.split(';').map(value=>value.trim()).find(value=>value.startsWith('zhike_media='))?.slice('zhike_media='.length);
+    if(!cookie || !/^[a-zA-Z0-9_-]{43}$/.test(cookie)) return null;
+    return get('SELECT s.*,m.expires AS mediaExpires FROM media_sessions m JOIN sessions s ON s.hash=m.sessionHash WHERE m.hash=? AND m.expires>? AND s.expires>?',hash(cookie),Date.now(),Date.now());
+  }
+  function issueMediaCookie(req,res) {
+    if(!req.auth)return;
+    const existing=mediaCookieSession(req);
+    if(existing?.hash===req.auth.hash && existing.mediaExpires>Date.now()+mediaLifetime/2)return;
+    run('DELETE FROM media_sessions WHERE expires < ?',Date.now());
+    const proof=randomBytes(32).toString('base64url');
+    run('INSERT INTO media_sessions VALUES(?,?,?)',hash(proof),req.auth.hash,Math.min(req.auth.expires,Date.now()+mediaLifetime));
+    // This cookie only authorizes media requests; copied URLs carry no login secret.
+    res.cookie('zhike_media',proof,{httpOnly:true,secure:production,sameSite:'lax',path:'/api',maxAge:mediaLifetime});
+  }
+  function signedMedia(lesson,identity) {
+    const uploadId=uploadedVideoId(lesson),resource=uploadId?`upload:${uploadId}`:`remote:${hash(lesson.videoUrl)}`;
+    const expires=String(Math.min(identity?.expires||Infinity,Date.now()+mediaLifetime));
+    const session=identity?sessionBinding(identity):'public';
+    const signature=createHmac('sha256',secret).update(`${resource}:${lesson.id}:${session}:${expires}`).digest('hex');
+    const path=uploadId?`/api/media/${uploadId}`:`/api/lessons/${lesson.id}/stream`;
+    return {url:`${path}?${new URLSearchParams({lessonId:lesson.id,session,expires,signature})}`,expiresAt:Number(expires)};
+  }
+  function verifyMediaRequest(req,lesson,resource) {
+    const expires=String(req.query.expires||''),signature=String(req.query.signature||''),session=String(req.query.session||'');
+    const expected=createHmac('sha256',secret).update(`${resource}:${lesson.id}:${session}:${expires}`).digest('hex');
+    if(!/^\d{13}$/.test(expires) || Number(expires)<=Date.now() || Number(expires)>Date.now()+mediaLifetime+5000 || !safeEqual(signature,expected)) throw fail(403,'视频凭证无效或已过期，请重新打开课时');
+    if(session==='public') {
+      // Recheck publication/preview so an old preview link cannot expose a newly paid lesson.
+      accessibleLesson(lesson.id,null);
+      return;
+    }
+    const identity=req.auth||mediaCookieSession(req);
+    if(!identity || !safeEqual(session,sessionBinding(identity))) throw fail(403,'请在已登录的学习页面播放视频');
+    accessibleLesson(lesson.id,identity);
+  }
+  const remoteHosts=new Set(String(env.VIDEO_REMOTE_HOSTS||'').split(',').map(value=>value.trim().toLowerCase()).filter(Boolean));
+  if(demo) remoteHosts.add('interactive-examples.mdn.mozilla.net');
+  function allowedRemoteVideo(value) {
+    let parsed;try {parsed=new URL(value);} catch {throw fail(503,'视频源不可用，请联系管理员重新上传视频');}
+    if(parsed.protocol!=='https:' || parsed.username || parsed.password || (parsed.port && parsed.port!=='443') || !remoteHosts.has(parsed.hostname.toLowerCase())) throw fail(503,'此视频尚未配置受保护的视频源，请联系管理员上传视频');
+    return parsed;
   }
   const play=(req,res)=>{
     const lesson=getAccessibleLesson(req);const p=req.auth?.userId?get('SELECT * FROM progress WHERE userId=? AND lessonId=?',req.auth.userId,lesson.id):null;
     if(!lesson.videoUrl) throw fail(404,'本课时视频尚未上传，请稍后再试');
-    res.json({...lessonShape(lesson,true),url:videoUrl(lesson),videoUrl:videoUrl(lesson),progress:p?.position||0,demoVideo:lesson.videoUrl.includes('interactive-examples.mdn')});
+    const uploadId=uploadedVideoId(lesson);
+    if(uploadId && !get("SELECT 1 FROM uploads WHERE id=? AND kind='video'",uploadId))throw fail(404,'视频文件不存在，请联系管理员重新上传');
+    if(!uploadId)allowedRemoteVideo(lesson.videoUrl);
+    issueMediaCookie(req,res);
+    const media=signedMedia(lesson,req.auth);
+    res.setHeader('Cache-Control','private, no-store');
+    res.json({...lessonShape(lesson,false),url:media.url,videoUrl:media.url,expiresAt:media.expiresAt,requiresAuthorizedDownload:Boolean(req.auth),playbackAuth:req.auth?'session':'public',progress:p?.position||0,demoVideo:lesson.videoUrl.includes('interactive-examples.mdn')});
   };
   app.get(['/api/lessons/:id/play','/api/lessons/:id'],play);
+  app.get('/api/lessons/:id/stream',asyncRoute(async(req,res)=>{
+    const lesson=get('SELECT * FROM lessons WHERE id=?',req.params.id);
+    if(!lesson || uploadedVideoId(lesson) || req.query.lessonId!==lesson.id)throw fail(404,'视频不存在');
+    verifyMediaRequest(req,lesson,`remote:${hash(lesson.videoUrl)}`);
+    let target=allowedRemoteVideo(lesson.videoUrl),upstream;
+    const headers={'Accept':'video/*,application/octet-stream','Accept-Encoding':'identity'};
+    if(req.headers.range)headers.Range=req.headers.range;
+    if(req.headers['if-range'])headers['If-Range']=req.headers['if-range'];
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
+    try {
+      for(let redirects=0;redirects<4;redirects++) {
+        upstream=await fetchVideo(target,{method:req.method==='HEAD'?'HEAD':'GET',headers,redirect:'manual',signal:controller.signal});
+        if(![301,302,303,307,308].includes(upstream.status))break;
+        const location=upstream.headers.get('location');await upstream.body?.cancel();
+        if(!location || redirects===3)throw fail(502,'视频源重定向异常');
+        target=allowedRemoteVideo(new URL(location,target).href);
+      }
+    }catch(error){if(error.status)throw error;throw fail(502,'视频源暂时无法连接，请稍后再试');}finally{clearTimeout(timer);}
+    if(![200,206,416].includes(upstream.status)) {await upstream.body?.cancel();throw fail(502,'视频源暂时不可用，请稍后再试');}
+    if(upstream.status!==416 && !/^(video\/|application\/octet-stream)/i.test(upstream.headers.get('content-type')||'')) {await upstream.body?.cancel();throw fail(502,'视频源没有返回有效的视频文件');}
+    res.status(upstream.status).setHeader('Cache-Control','private, no-store');
+    for(const header of ['content-type','content-length','content-range','accept-ranges','last-modified','etag']) {const value=upstream.headers.get(header);if(value)res.setHeader(header,value);}
+    if(req.method==='HEAD' || !upstream.body)return res.end();
+    await pipeline(Readable.fromWeb(upstream.body),res);
+  }));
   app.post('/api/lessons/:id/progress',student,(req,res)=>{
     const lesson=getAccessibleLesson(req);if(!enrolled(req.auth.userId,lesson.courseId)) throw fail(403,'请先选课后再记录学习进度');
     const seconds=Number(req.body.seconds??req.body.position);if(!Number.isFinite(seconds) || seconds<0) throw fail(400,'学习进度必须是有效的非负秒数');
@@ -309,11 +645,14 @@ export function createApp(options={}) {
   });
   app.get('/api/media/:id',(req,res,next)=>{
     const upload=get('SELECT * FROM uploads WHERE id=?',req.params.id);if(!upload) throw fail(404,'文件不存在');
-    const expires=String(req.query.expires||''),signature=String(req.query.signature||'');
-    const validSignature=Number(expires)>Date.now() && Number(expires)<Date.now()+61*60*1000 && safeEqual(signature,createHmac('sha256',secret).update(`${upload.id}:${expires}`).digest('hex'));
-    if(upload.kind!=='cover' && req.auth?.role!=='admin' && !validSignature) throw fail(403,'文件访问凭证无效，请从课程页面重新打开');
+    if(upload.kind==='video' && req.auth?.role!=='admin') {
+      const lesson=get('SELECT * FROM lessons WHERE id=?',textValue(req.query.lessonId));
+      if(!lesson || uploadedVideoId(lesson)!==upload.id)throw fail(403,'请通过课程页面访问视频');
+      verifyMediaRequest(req,lesson,`upload:${upload.id}`);
+    }
     if(upload.kind==='material' && req.auth?.role!=='admin') throw fail(403,'请通过课程资料下载入口访问');
-    res.setHeader('Cache-Control',upload.kind==='cover'?'public, max-age=3600':'private, no-store');res.type(upload.mime);res.sendFile(join(uploadsDir,upload.storageName),error=>error&&next(error));
+    if(upload.kind==='cover')res.setHeader('Cross-Origin-Resource-Policy','cross-origin');
+    res.setHeader('Cache-Control',upload.kind==='cover'?'public, max-age=3600':'private, no-store');res.type(upload.mime);res.sendFile(upload.storageName,{root:uploadsDir},error=>error&&next(error));
   });
 
   app.post('/api/admin/login',(req,res)=>{
@@ -325,21 +664,39 @@ export function createApp(options={}) {
     const revenue=get("SELECT COALESCE(SUM(amount),0) AS value FROM orders WHERE status='paid'").value/100;
     const students=get('SELECT COUNT(*) AS value FROM users').value,courses=get("SELECT COUNT(*) AS value FROM courses WHERE status!='archived'").value,orders=get('SELECT COUNT(*) AS value FROM orders').value;
     const paidOrders=get("SELECT COUNT(*) AS value FROM orders WHERE status='paid'").value;
-    res.json({revenue,totalRevenue:revenue,students,totalStudents:students,courses,totalCourses:courses,orders,totalOrders:orders,paidOrders,recentOrders:all('SELECT * FROM orders ORDER BY createdAt DESC LIMIT 8').map(orderShape),publishedCourses:get("SELECT COUNT(*) AS value FROM courses WHERE status='published'").value,materials:get('SELECT COUNT(*) AS value FROM materials').value});
+    res.json({revenue,totalRevenue:revenue,students,totalStudents:students,courses,totalCourses:courses,orders,totalOrders:orders,paidOrders,recentOrders:all('SELECT * FROM orders ORDER BY createdAt DESC LIMIT 8').map(adminOrderShape),paymentReviewRequired:get("SELECT COUNT(*) AS value FROM (SELECT orderId FROM virtual_payments WHERE status='paid' GROUP BY orderId HAVING COUNT(*)>1)").value,publishedCourses:get("SELECT COUNT(*) AS value FROM courses WHERE status='published'").value,materials:get('SELECT COUNT(*) AS value FROM materials').value});
   };
   app.get(['/api/admin/stats','/api/admin/overview'],statistics);
-  app.get('/api/admin/courses',(req,res)=>res.json(all("SELECT * FROM courses WHERE status!='archived' ORDER BY createdAt DESC,id").map(c=>courseShape(c))));
+  app.get('/api/admin/courses',(req,res)=>res.json(all(`SELECT * FROM courses ${req.query.includeArchived==='true'?'':"WHERE status!='archived'"} ORDER BY createdAt DESC,id`).map(c=>courseShape(c))));
   app.get('/api/admin/courses/:id',(req,res)=>res.json(fullCourse(findCourse(req.params.id,true),null,true)));
   function courseInput(body,previous={}) {
     const merged={...previous,...body};
-    const result={title:textValue(merged.title,120),subtitle:textValue(merged.subtitle,300),subject:textValue(merged.subject,20),grade:textValue(merged.grade,20),type:textValue(merged.type,20),price:currency(merged.price),originalPrice:currency(merged.originalPrice??merged.price),teacher:textValue(merged.teacher,40),teacherRole:textValue(body.teacherTitle??body.teacherRole??previous.teacherRole??'主讲老师',40),teacherColor:textValue(body.color??body.teacherColor??previous.teacherColor??'#ff8a21',30),description:textValue(merged.description,10000),coverTheme:textValue(merged.coverTheme||'orange',50),tags:JSON.stringify(Array.isArray(merged.tags)?merged.tags.slice(0,8).map(t=>textValue(t,30)):typeof merged.tags==='string'?JSON.parse(merged.tags):[]),status:textValue(merged.status||'draft',20)};
+    function imageUrl(value) {
+      if(value===undefined || value==='')return '';
+      if(typeof value!=='string' || value.length>2000 || /[\x00-\x20]/.test(value))throw fail(400,'课程图片须为有效的上传图片地址或 HTTPS 地址');
+      const media=value.match(/^\/api\/media\/([a-z0-9-]+)$/i);
+      if(media) {
+        if(!get("SELECT 1 FROM uploads WHERE id=? AND kind='cover'",media[1]))throw fail(400,'课程图片文件不存在或不是图片');
+        return value;
+      }
+      let parsed;try {parsed=new URL(value);}catch{throw fail(400,'课程图片地址无效');}
+      if(parsed.protocol!=='https:' || parsed.username || parsed.password)throw fail(400,'课程图片仅支持 HTTPS 地址和上传图片');
+      return parsed.href;
+    }
+    const detailImages=body.detailImages===undefined?savedArray(previous.detailImages):body.detailImages;
+    if(!Array.isArray(detailImages) || detailImages.length>20)throw fail(400,'课程详情图片须为数组，最多 20 张');
+    const tags=body.tags===undefined?savedArray(previous.tags):body.tags;
+    if(!Array.isArray(tags) || tags.length>8 || tags.some(tag=>typeof tag!=='string'))throw fail(400,'课程标签须为文字数组，最多 8 个');
+    const productId=body.productId===undefined?(previous.productId||''):body.productId;
+    if(typeof productId!=='string' || productId.length>128 || (productId && !/^[a-zA-Z0-9_.-]+$/.test(productId)))throw fail(400,'商品编号须为 128 位以内的字母、数字、点、下划线或短横线');
+    const result={title:textValue(merged.title,120),subtitle:textValue(merged.subtitle,300),subject:textValue(merged.subject,20),grade:textValue(merged.grade,20),type:textValue(merged.type,20),price:currency(merged.price),originalPrice:currency(merged.originalPrice??merged.price),teacher:textValue(merged.teacher,40),teacherRole:textValue(body.teacherTitle??body.teacherRole??previous.teacherRole??'主讲老师',40),teacherColor:textValue(body.color??body.teacherColor??previous.teacherColor??'#ff8a21',30),description:textValue(merged.description,10000),coverTheme:textValue(merged.coverTheme||'orange',50),tags:JSON.stringify(tags.map(t=>textValue(t,30)).filter(Boolean)),status:textValue(merged.status||'draft',20),coverImage:imageUrl(merged.coverImage),detailImages:JSON.stringify(detailImages.map(imageUrl).filter(Boolean)),productId};
     if(!result.title || !result.subject || !result.grade || !result.type || !result.teacher) throw fail(400,'请填写课程名称、科目、年级、类型和主讲老师');
     if(result.price===null || result.originalPrice===null) throw fail(400,'课程价格必须是 0 到 999999 之间的有效金额');
     if(!['published','draft'].includes(result.status)) throw fail(400,'课程状态必须为 published 或 draft');
     if(!/^#[0-9a-f]{3,8}$/i.test(result.teacherColor)) result.teacherColor='#ff8a21';
     return result;
   }
-  app.post('/api/admin/courses',(req,res)=>{const data=courseInput(req.body),id=randomUUID();run('INSERT INTO courses VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',id,...Object.values(data),now());res.status(201).json(fullCourse(findCourse(id,true),null,true));});
+  app.post('/api/admin/courses',(req,res)=>{const data=courseInput(req.body),id=randomUUID();run(`INSERT INTO courses(id,${Object.keys(data).join(',')},createdAt) VALUES(${Array(Object.keys(data).length+2).fill('?').join(',')})`,id,...Object.values(data),now());res.status(201).json(fullCourse(findCourse(id,true),null,true));});
   app.put('/api/admin/courses/:id',(req,res)=>{const previous=findCourse(req.params.id,true),data=courseInput(req.body,previous);run(`UPDATE courses SET ${Object.keys(data).map(k=>`${k}=?`).join(',')} WHERE id=?`,...Object.values(data),previous.id);res.json(fullCourse(findCourse(previous.id,true),null,true));});
   app.delete('/api/admin/courses/:id',(req,res)=>{findCourse(req.params.id,true);run("UPDATE courses SET status='archived' WHERE id=?",req.params.id);res.json({ok:true,archived:true});});
   function lessonInput(body,previous={}) {
@@ -377,7 +734,7 @@ export function createApp(options={}) {
     const material=get('SELECT m.*,u.name AS fileName,u.size,u.mime,u.createdAt FROM materials m JOIN uploads u ON u.id=m.uploadId WHERE m.id=?',id);res.status(201).json(materialShape(material));
   });
   app.delete('/api/admin/materials/:id',(req,res)=>{run('DELETE FROM materials WHERE id=?',req.params.id);res.json({ok:true});});
-  app.get('/api/admin/orders',(req,res)=>res.json(all('SELECT * FROM orders ORDER BY createdAt DESC').map(orderShape)));
+  app.get('/api/admin/orders',(req,res)=>res.json(all('SELECT * FROM orders ORDER BY createdAt DESC').map(adminOrderShape)));
   app.get('/api/admin/students',(req,res)=>res.json(all('SELECT u.*,COUNT(e.courseId) AS enrolledCount FROM users u LEFT JOIN enrollments e ON e.userId=u.id GROUP BY u.id ORDER BY u.createdAt DESC').map(u=>({...userShape(u),enrolledCount:u.enrolledCount}))));
 
   app.use('/api',(req,res)=>res.status(404).json({message:'接口不存在'}));
@@ -392,5 +749,11 @@ export function createApp(options={}) {
     if(status>=500 && !options.quiet) console.error(error);
     res.status(status).json({message:error instanceof multer.MulterError?(error.code==='LIMIT_FILE_SIZE'?'文件过大，单个文件最大 250 MB':'上传文件不符合要求'):status>=500&&!error.status?'服务暂时不可用，请稍后重试':error.message});
   });
-  return {app,db,close:()=>db.close(),config:{demo,uploadsDir,databasePath}};
+  let reconcileTimer,startupTimer;
+  if(virtualPayment.configured && options.virtualReconciliation!==false) {
+    const interval=Math.max(10,Number(options.virtualReconcileIntervalMs)||60000);
+    reconcileTimer=setInterval(()=>{void reconcileVirtualPayments();},interval);reconcileTimer.unref();
+    startupTimer=setTimeout(()=>{void reconcileVirtualPayments({force:true});},Math.max(0,Number(options.virtualReconcileStartupMs)||1000));startupTimer.unref();
+  }
+  return {app,db,reconcileVirtualPayments,close:()=>{closed=true;clearInterval(reconcileTimer);clearTimeout(startupTimer);db.close();},config:{demo,uploadsDir,databasePath}};
 }

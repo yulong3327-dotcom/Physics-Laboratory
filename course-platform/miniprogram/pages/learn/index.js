@@ -1,7 +1,7 @@
-const {request,absoluteUrl}=require('../../utils/api');
+const {request,absoluteUrl,downloadVideo,removeTempVideo}=require('../../utils/api');
 const format=require('../../utils/format');
 Page({
-  data:{course:null,lesson:null,lessons:[],loading:true,error:'',videoError:false,players:[],demoVideo:false,nextLesson:null,savedText:'',isPreview:false},
+  data:{course:null,lesson:null,lessons:[],loading:true,error:'',videoError:false,players:[],demoVideo:false,nextLesson:null,savedText:'',isPreview:false,downloading:false,downloadProgress:0},
   onLoad(options){
     this._courseId=options.courseId;this._lessonId=options.lessonId;
     this._requestId=0;this._sessionId=0;this._progress={};this._saveQueue=Promise.resolve();this._disposed=false;
@@ -9,15 +9,18 @@ Page({
     this.load();
   },
   onShow(){if(!this._disposed&&(this._refreshOnShow||this._authToken!==(getApp().globalData.token||''))){this._refreshOnShow=false;return this.load();}},
-  onHide(){this._refreshOnShow=true;this.saveProgress(false);},
-  onUnload(){this.saveProgress(false);this._disposed=true;this._requestId++;this._playback=null;},
+  onHide(){this._refreshOnShow=true;this._requestId++;this.cancelDownload();this.stopPlayback();this.setData({players:[],downloading:false});},
+  onUnload(){this.stopPlayback();this._disposed=true;this._requestId++;this.cancelDownload();},
   stopPlayback(){
     const playback=this._playback;
     if(!playback)return;
     this.saveProgress(false,playback);
     this._playback=null;
     wx.createVideoContext('lesson-video-'+playback.id,this).pause();
+    if(playback.tempFilePath&&removeTempVideo)removeTempVideo(playback.tempFilePath);
   },
+  cancelDownload(){const download=this._download;this._download=null;if(download)download.abort();},
+  cancelLoading(){this._requestId++;this.cancelDownload();this.setData({loading:false,downloading:false,error:'视频加载已取消，可重新加载课程'});},
   authActive(token,version){return token===(getApp().globalData.token||'')&&token===this._authToken&&version===this._authVersion;},
   load(){
     const authToken=getApp().globalData.token||'';
@@ -26,6 +29,7 @@ Page({
       this._progress={};this._saveQueue=Promise.resolve();
     }
     const authVersion=this._authVersion;
+    this.cancelDownload();
     this.stopPlayback();
     const requestId=++this._requestId;
     this.setData({loading:true,error:'',videoError:false,players:[]});
@@ -39,21 +43,36 @@ Page({
   openLesson(id){
     if(this._authToken!==(getApp().globalData.token||'')){this._lessonId=id;return this.load();}
     const authToken=this._authToken,authVersion=this._authVersion;
+    this.cancelDownload();
     this.stopPlayback();
     const requestId=++this._requestId;
     this._lessonId=id;
-    this.setData({loading:true,error:'',players:[],lesson:null,videoError:false});
+    this.setData({loading:true,error:'',players:[],lesson:null,videoError:false,downloading:false,downloadProgress:0});
     return request('/lessons/'+encodeURIComponent(id)+'/play').then(lesson=>{
       if(this._disposed||requestId!==this._requestId||!this.authActive(authToken,authVersion))return;
-      if(!lesson.url)throw new Error('老师尚未上传本课时视频，请稍后再来');
+      const videoUrl=lesson.videoUrl||lesson.url;
+      if(!videoUrl)throw new Error('老师尚未上传本课时视频，请稍后再来');
+      const prepare=lesson.requiresAuthorizedDownload?this.prepareProtectedVideo(videoUrl,requestId,authToken,authVersion):Promise.resolve({url:absoluteUrl(videoUrl),tempFilePath:''});
+      return prepare.then(video=>{
+      if(!video)return;
+      if(this._disposed||requestId!==this._requestId||!this.authActive(authToken,authVersion)){if(video.tempFilePath&&removeTempVideo)removeTempVideo(video.tempFilePath);return;}
       const index=this.data.lessons.findIndex(l=>l.id===id);
       // Keep the latest local position while a previous save is still in flight.
       const progress=this._progress[id]||(this._progress[id]={position:Number(lesson.progress)||0,completed:false,savedPosition:Number(lesson.progress)||0,lastSave:null});
-      const playback={id:++this._sessionId,lessonId:id,progress,authToken,authVersion};
+      const playback={id:++this._sessionId,lessonId:id,progress,authToken,authVersion,tempFilePath:video.tempFilePath};
       this._playback=playback;
-      this.setData({lesson,players:[{id:playback.id,url:absoluteUrl(lesson.url),startTime:progress.position,title:lesson.title}],demoVideo:!!lesson.demoVideo,isPreview:!this.data.course.enrolled,loading:false,error:'',videoError:false,savedText:this._canSave?'学习进度自动保存':'当前为课程试看',nextLesson:this.data.lessons[index+1]||null});
+      this.setData({lesson,players:[{id:playback.id,url:video.url,startTime:progress.position,title:lesson.title}],demoVideo:!!lesson.demoVideo,isPreview:!this.data.course.enrolled,loading:false,downloading:false,error:'',videoError:false,savedText:this._canSave?'学习进度自动保存':'当前为课程试看',nextLesson:this.data.lessons[index+1]||null});
       wx.setNavigationBarTitle({title:lesson.title});
-    }).catch(e=>{if(!this._disposed&&requestId===this._requestId&&this.authActive(authToken,authVersion))this.setData({loading:false,error:e.message});});
+      });
+    }).catch(e=>{if(!this._disposed&&requestId===this._requestId&&this.authActive(authToken,authVersion))this.setData({loading:false,downloading:false,error:e.message});});
+  },
+  prepareProtectedVideo(url,requestId,authToken,authVersion){
+    this.setData({downloading:true,downloadProgress:0});
+    const download=downloadVideo(url,{token:authToken,onProgress:value=>{
+      if(!this._disposed&&requestId===this._requestId&&this.authActive(authToken,authVersion))this.setData({downloadProgress:Math.max(0,Math.min(100,Number(value.progress)||0))});
+    }});
+    this._download=download;
+    return download.promise.then(path=>({url:path,tempFilePath:path})).finally(()=>{if(this._download===download)this._download=null;});
   },
   chooseLesson(e){const id=e.currentTarget.dataset.id;if(id===this._lessonId)return;const target=this.data.lessons.find(l=>l.id===id);if(!target)return;if(!this.data.course.canWatch&&!target.isPreview){this.buy();return;}return this.openLesson(id);},
   eventPlayback(e){
