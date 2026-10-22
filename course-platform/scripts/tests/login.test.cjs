@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const flush=()=>new Promise(setImmediate);
-const validSession={token:'real-session-token',user:{id:'student-id',role:'student',wechatLinked:true}};
+const validSession={token:'real-session-token',user:{id:'student-id',role:'student',wechatLinked:true,contactInfoCompleted:true}};
 
 async function harness(options={}){
   const calls=[],configCalls=[],wxLogins=[],sessions=[],navigation=[],toasts=[],errors=[];
@@ -21,7 +21,7 @@ async function harness(options={}){
   });
   const page=Object.assign({},definition,{data:structuredClone(definition.data),updates:0,setData(value){this.updates++;Object.assign(this.data,value);}});
   const configPromise=page.onLoad({returnTo:options.rawReturnTo===undefined?encodeURIComponent(options.target||''):options.rawReturnTo});
-  if(!options.deferConfig){configCalls[0].resolve({demoMode:false,wechatConfigured:true});await configPromise;}
+  if(!options.deferConfig){configCalls[0].resolve({demoMode:false,wechatConfigured:true,smsConfigured:options.smsConfigured===true});await configPromise;}
   if(options.agreed!==false)page.data.agreed=true;
   const find=path=>calls.filter(call=>call.path===path);
   const fireTimeout=()=>{assert.equal(timers.size,1);const [id,timer]=timers.entries().next().value;timers.delete(id);timer.callback();};
@@ -91,11 +91,11 @@ for(const outcome of ['resolve','reject']){
   });
 }
 
-test('switching to phone login invalidates a pending WeChat backend response',async()=>{
-  const h=await harness();const wechat=h.page.wechatLogin();h.wxLogins[0].success({code:'old-code'});await flush();
+test('switching to configured phone login invalidates a pending WeChat backend response',async()=>{
+  const h=await harness({smsConfigured:true});const wechat=h.page.wechatLogin();h.wxLogins[0].success({code:'old-code'});await flush();
   h.page.changeMode({currentTarget:{dataset:{mode:'phone'}}});h.page.data.phone='13800138000';h.page.data.code='123456';const phone=h.page.phoneLogin();
   h.find('/auth/wechat')[0].resolve(validSession);await wechat;assert.equal(h.sessions.length,0);assert.equal(h.page.data.busy,true);
-  h.find('/auth/phone')[0].resolve({token:'phone-session',user:{id:'phone-user'}});await phone;
+  h.find('/auth/phone')[0].resolve({token:'phone-session',user:{id:'phone-user',contactInfoCompleted:true}});await phone;
   assert.equal(h.sessions.length,1);assert.equal(h.sessions[0].token,'phone-session');assert.equal(h.navigation.length,1);
 });
 
@@ -141,9 +141,31 @@ test('a stale configuration failure cannot overwrite a newer successful configur
 });
 
 test('an SMS response after unloading creates no countdown or toast',async()=>{
-  const h=await harness();h.page.data.phone='13800138000';const sending=h.page.sendCode();h.page.onUnload();const updates=h.page.updates;
+  const h=await harness({smsConfigured:true});h.page.data.phone='13800138000';const sending=h.page.sendCode();h.page.onUnload();const updates=h.page.updates;
   h.find('/auth/sms/send')[0].resolve({retryAfter:60});await sending;
   assert.equal(h.page.updates,updates);assert.equal(h.intervals.size,0);assert.equal(h.toasts.length,0);
+});
+
+test('unconfigured SMS cannot be opened or requested even by a stale UI event',async()=>{
+  const h=await harness();h.page.data.phone='13800138000';h.page.data.code='123456';
+  h.page.changeMode({currentTarget:{dataset:{mode:'phone'}}});h.page.sendCode();h.page.phoneLogin();
+  assert.equal(h.page.data.mode,'wechat');assert.equal(h.calls.length,0);assert.equal(h.page.data.busy,false);
+});
+
+test('first WeChat login offers contact details and skipping preserves the checkout destination exactly once',async()=>{
+  const target='/pages/checkout/index?courseId=course',h=await harness({target});
+  await login(h,{token:'first-session',user:{id:'new-student',contactInfoCompleted:false}});
+  assert.equal(h.sessions.length,1);assert.equal(h.page.data.showContact,true);assert.equal(h.navigation.length,0);
+  h.page.finishContact();h.page.finishContact();
+  assert.equal(h.page.data.showContact,false);assert.deepEqual(h.navigation,[{type:'redirectTo',url:target}]);
+});
+
+test('contact completion cannot navigate after leaving or after an account switch',async()=>{
+  for(const change of ['unload','account']){
+    const h=await harness();await login(h,{token:'first-session',user:{id:'new-student',contactInfoCompleted:false}});
+    if(change==='unload')h.page.onUnload();else h.app.globalData.token='other-session';
+    h.page.finishContact();assert.equal(h.navigation.length,0);
+  }
 });
 for(const method of ['phoneLogin','demoLogin']){
   test(method+' also ignores successful responses after unloading',async()=>{

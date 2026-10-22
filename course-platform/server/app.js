@@ -12,6 +12,8 @@ import { pipeline } from 'node:stream/promises';
 import { openDatabase } from './database.js';
 import { wechatProvider, WechatAuthError, validWechatOpenid } from './wechat.js';
 import { smsProvider } from './sms.js';
+import { installStudentServices, contactShape } from './student-services.js';
+import { logisticsProvider } from './logistics.js';
 import { virtualPaymentProvider, VirtualPaymentError } from './virtual-payment.js';
 import { vodProvider, vodReference, vodFileId, VodError } from './vod.js';
 
@@ -57,7 +59,7 @@ export function createApp(options={}) {
   const run=(sql,...values)=>db.prepare(sql).run(...values);
   const get=(sql,...values)=>db.prepare(sql).get(...values);
   const all=(sql,...values)=>db.prepare(sql).all(...values);
-  const userShape=u=>({id:u.id,nickname:u.name,name:u.name,phone:u.phone||'',avatar:'',createdAt:u.createdAt,role:'student',wechatLinked:Boolean(u.openid && u.openid!=='demo-student')});
+  const userShape=u=>({id:u.id,nickname:u.name,name:u.name,phone:u.phone||'',avatar:'',createdAt:u.createdAt,role:'student',studentNumber:u.id,studentCode:u.id,wechatLinked:Boolean(u.openid && u.openid!=='demo-student'),authMethod:u.openid&&u.openid!=='demo-student'?'wechat':u.phone?'phone':'demo',...contactShape(get('SELECT * FROM student_contacts WHERE userId=?',u.id))});
   function issueSession(userId,role='student') {
     const token=randomBytes(32).toString('base64url');
     run('DELETE FROM sessions WHERE expires < ?',Date.now());
@@ -73,6 +75,7 @@ export function createApp(options={}) {
     next();
   }
   app.use('/api',optionalAuth);
+  app.use(['/api/me','/api/my','/api/admin'],(req,res,next)=>{res.setHeader('Cache-Control','private, no-store');next();});
   const auth=(req,res,next)=>req.auth?next():next(fail(401,'请先登录'));
   const admin=(req,res,next)=>req.auth?.role==='admin'?next():next(fail(req.auth?403:401,'请先登录管理后台'));
   const student=(req,res,next)=>req.auth?.role==='student'?next():next(fail(401,'请先使用学生账号登录'));
@@ -96,7 +99,7 @@ export function createApp(options={}) {
     const lessons=all('SELECT l.id,l.duration,p.position,p.completed FROM lessons l LEFT JOIN progress p ON p.lessonId=l.id AND p.userId=? WHERE l.courseId=?',userId||'',course.id);
     const completedLessons=lessons.filter(l=>l.completed).length;
     const progressPercent=counts.duration?Math.min(100,Math.round(lessons.reduce((sum,l)=>sum+(l.completed?l.duration:Math.min(l.position||0,l.duration)),0)/counts.duration*100)):0;
-    return {...course,tags:savedArray(course.tags),coverImage:course.coverImage||'',detailImages:savedArray(course.detailImages),productId:course.productId||'',teacherTitle:course.teacherRole,teacherAvatar:'',color:course.teacherColor,lessonCount:counts.count,studentCount:count,duration:counts.duration,enrolled:enrolled(userId,course.id),purchased:enrolled(userId,course.id),progressPercent,completedLessons};
+    return {...course,shippingEnabled:Boolean(course.shippingEnabled),tags:savedArray(course.tags),coverImage:course.coverImage||'',detailImages:savedArray(course.detailImages),productId:course.productId||'',teacherTitle:course.teacherRole,teacherAvatar:'',color:course.teacherColor,lessonCount:counts.count,studentCount:count,duration:counts.duration,enrolled:enrolled(userId,course.id),purchased:enrolled(userId,course.id),progressPercent,completedLessons};
   }
   function lessonShape(lesson,canWatch=false) {return {...lesson,preview:Boolean(lesson.preview),isPreview:Boolean(lesson.preview),freePreview:Boolean(lesson.preview),sort:lesson.sortOrder,videoUrl:canWatch?lesson.videoUrl:''};}
   function materialShape(material) {return {id:material.id,courseId:material.courseId,name:material.name,title:material.name,fileName:material.fileName,size:material.size,mimeType:material.mime,type:material.mime,createdAt:material.createdAt};}
@@ -109,15 +112,17 @@ export function createApp(options={}) {
     return {...courseShape(course,userId),lessons,materials,progress:Object.fromEntries(progresses.map(p=>[p.lessonId,p.position])),completedLessonIds:progresses.filter(p=>p.completed).map(p=>p.lessonId),canWatch};
   }
   function orderShape(order) {
-    const course=get('SELECT title FROM courses WHERE id=?',order.courseId),user=get('SELECT name,phone FROM users WHERE id=?',order.userId);
+    const course=get('SELECT title,shippingEnabled FROM courses WHERE id=?',order.courseId),user=get('SELECT name,phone FROM users WHERE id=?',order.userId);
     const {paymentCodeUrl,...safeOrder}=order;
-    return {...safeOrder,paymentChannel:order.payChannel||null,amount:order.amount/100,amountFen:order.amount,courseTitle:course?.title||'已归档课程',userName:user?.name||'',phone:user?.phone||''};
+    return {...safeOrder,paymentChannel:order.payChannel||null,amount:order.amount/100,amountFen:order.amount,courseTitle:course?.title||'已归档课程',shippingEnabled:Boolean(course?.shippingEnabled),shipment:studentServices.forOrder(order.id),userName:user?.name||'',phone:user?.phone||''};
   }
   function adminOrderShape(order) {
+    const user=get('SELECT * FROM users WHERE id=?',order.userId);
+    const identity=user?userShape(user):{studentNumber:order.userId,studentCode:order.userId,wechatLinked:false,authMethod:'unknown',...contactShape()};
     const payments=all('SELECT id,status,transactionId,amount,createdAt,paidAt,refundedAt,deliveredAt,duplicatePayment,remainingAmount,refundFinal,error FROM virtual_payments WHERE orderId=? ORDER BY createdAt,id',order.id);
     const duplicatePayments=payments.filter(payment=>payment.duplicatePayment);
     const refunds=all('SELECT r.* FROM virtual_refunds r JOIN virtual_payments p ON p.id=r.attemptId WHERE p.orderId=? ORDER BY r.createdAt,r.id',order.id);
-    return {...orderShape(order),virtualPayments:payments.map(payment=>({...payment,amountFen:payment.amount,amount:payment.amount/100,duplicatePayment:Boolean(payment.duplicatePayment)})),virtualRefunds:refunds,duplicatePayment:duplicatePayments.length>0,duplicatePaymentCount:duplicatePayments.length,paymentReviewRequired:payments.filter(payment=>payment.status==='paid').length>1};
+    return {...orderShape(order),studentNumber:identity.studentNumber,studentCode:identity.studentCode,wechatLinked:identity.wechatLinked,authMethod:identity.authMethod,contactPhone:identity.contactPhone,wechatId:identity.wechatId,contactPhoneVerified:false,virtualPayments:payments.map(payment=>({...payment,amountFen:payment.amount,amount:payment.amount/100,duplicatePayment:Boolean(payment.duplicatePayment)})),virtualRefunds:refunds,duplicatePayment:duplicatePayments.length>0,duplicatePaymentCount:duplicatePayments.length,paymentReviewRequired:payments.filter(payment=>payment.status==='paid').length>1};
   }
   function ownedOrder(req) {
     const order=get('SELECT * FROM orders WHERE id=? AND userId=?',req.params.id,req.auth.userId);
@@ -374,7 +379,20 @@ export function createApp(options={}) {
   app.post(['/api/auth/wechat','/api/auth/wechat-phone'],wechatLogin);
   app.post('/api/auth/logout',auth,(req,res)=>{run('DELETE FROM sessions WHERE hash=?',req.auth.hash);res.json({ok:true});});
   app.get('/api/me',student,(req,res)=>res.json(userShape(get('SELECT * FROM users WHERE id=?',req.auth.userId))));
-  app.patch('/api/me',student,(req,res)=>{const name=textValue(req.body.nickname||req.body.name,32);if(!name) throw fail(400,'昵称不能为空');run('UPDATE users SET name=? WHERE id=?',name,req.auth.userId);res.json(userShape(get('SELECT * FROM users WHERE id=?',req.auth.userId)));});
+  app.patch('/api/me',student,(req,res)=>{
+    const updateName=Object.hasOwn(req.body,'nickname') || Object.hasOwn(req.body,'name');
+    const updateContact=Object.hasOwn(req.body,'contactPhone') || Object.hasOwn(req.body,'wechatId');
+    if(!updateName && !updateContact)throw fail(400,'请提供昵称或联系信息');
+    const name=updateName?textValue(req.body.nickname||req.body.name,32):null;
+    if(updateName && !name)throw fail(400,'昵称不能为空');
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      if(updateContact)studentServices.saveContact(req.auth.userId,req.body);
+      if(updateName)run('UPDATE users SET name=? WHERE id=?',name,req.auth.userId);
+      db.exec('COMMIT');
+    }catch(error){db.exec('ROLLBACK');throw error;}
+    res.json(userShape(get('SELECT * FROM users WHERE id=?',req.auth.userId)));
+  });
   app.post('/api/me/wechat',student,loginLimit,asyncRoute(async(req,res)=>{
     if(!wechat.appConfigured) throw fail(503,'微信关联尚未配置 AppID 和 AppSecret，请联系管理员');
     const code=textValue(req.body.code,256),phoneCode=textValue(req.body.phoneCode,512);
@@ -765,7 +783,8 @@ export function createApp(options={}) {
     if(!Array.isArray(tags) || tags.length>8 || tags.some(tag=>typeof tag!=='string'))throw fail(400,'课程标签须为文字数组，最多 8 个');
     const productId=body.productId===undefined?(previous.productId||''):body.productId;
     if(typeof productId!=='string' || productId.length>128 || (productId && !/^[a-zA-Z0-9_.-]+$/.test(productId)))throw fail(400,'商品编号须为 128 位以内的字母、数字、点、下划线或短横线');
-    const result={title:textValue(merged.title,120),subtitle:textValue(merged.subtitle,300),subject:textValue(merged.subject,20),grade:textValue(merged.grade,20),type:textValue(merged.type,20),price:currency(merged.price),originalPrice:currency(merged.originalPrice??merged.price),teacher:textValue(merged.teacher,40),teacherRole:textValue(body.teacherTitle??body.teacherRole??previous.teacherRole??'主讲老师',40),teacherColor:textValue(body.color??body.teacherColor??previous.teacherColor??'#ff8a21',30),description:textValue(merged.description,10000),coverTheme:textValue(merged.coverTheme||'orange',50),tags:JSON.stringify(tags.map(t=>textValue(t,30)).filter(Boolean)),status:textValue(merged.status||'draft',20),coverImage:imageUrl(merged.coverImage),detailImages:JSON.stringify(detailImages.map(imageUrl).filter(Boolean)),productId};
+    if(body.shippingEnabled!==undefined && typeof body.shippingEnabled!=='boolean')throw fail(400,'讲义寄送选项必须为布尔值');
+    const result={title:textValue(merged.title,120),subtitle:textValue(merged.subtitle,300),subject:textValue(merged.subject,20),grade:textValue(merged.grade,20),type:textValue(merged.type,20),price:currency(merged.price),originalPrice:currency(merged.originalPrice??merged.price),teacher:textValue(merged.teacher,40),teacherRole:textValue(body.teacherTitle??body.teacherRole??previous.teacherRole??'主讲老师',40),teacherColor:textValue(body.color??body.teacherColor??previous.teacherColor??'#ff8a21',30),description:textValue(merged.description,10000),coverTheme:textValue(merged.coverTheme||'orange',50),tags:JSON.stringify(tags.map(t=>textValue(t,30)).filter(Boolean)),status:textValue(merged.status||'draft',20),coverImage:imageUrl(merged.coverImage),detailImages:JSON.stringify(detailImages.map(imageUrl).filter(Boolean)),productId,shippingEnabled:(body.shippingEnabled??previous.shippingEnabled)?1:0};
     if(!result.title || !result.subject || !result.grade || !result.type || !result.teacher) throw fail(400,'请填写课程名称、科目、年级、类型和主讲老师');
     if(result.price===null || result.originalPrice===null) throw fail(400,'课程价格必须是 0 到 999999 之间的有效金额');
     if(!['published','draft'].includes(result.status)) throw fail(400,'课程状态必须为 published 或 draft');
@@ -817,6 +836,7 @@ export function createApp(options={}) {
   app.get('/api/admin/orders',(req,res)=>res.json(all('SELECT * FROM orders ORDER BY createdAt DESC').map(adminOrderShape)));
   app.get('/api/admin/students',(req,res)=>res.json(all('SELECT u.*,COUNT(e.courseId) AS enrolledCount FROM users u LEFT JOIN enrollments e ON e.userId=u.id GROUP BY u.id ORDER BY u.createdAt DESC').map(u=>({...userShape(u),enrolledCount:u.enrolledCount}))));
 
+  const studentServices=installStudentServices(app,{db,student,admin,userShape,logistics:options.logisticsProvider||logisticsProvider(env)});
   app.use('/api',(req,res)=>res.status(404).json({message:'接口不存在'}));
   const webDist=resolve(options.webDir||join(here,'../web/dist'));
   if(existsSync(webDist)) {

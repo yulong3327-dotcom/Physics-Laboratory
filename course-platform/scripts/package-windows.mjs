@@ -9,7 +9,7 @@ if(!existsSync(join(root,'web/dist/index.html')))throw new Error('先运行 npm 
 const releaseDir=join(root,'.tmp','releases');mkdirSync(releaseDir,{recursive:true});
 const stage=mkdtempSync(join(releaseDir,'stage-'));
 const app=join(stage,'course-platform');mkdirSync(app);
-const allowlist=['package.json','package-lock.json','README.md','DEPLOYMENT.md','server/app.js','server/database.js','server/index.js','server/package.json','server/sms.js','server/wechat.js','server/virtual-payment.js','server/vod.js','scripts/check-wechat-login.mjs','project.config.json','deploy/windows','web/dist'];
+const allowlist=['package.json','package-lock.json','README.md','DEPLOYMENT.md','server/app.js','server/database.js','server/index.js','server/package.json','server/sms.js','server/wechat.js','server/virtual-payment.js','server/vod.js','server/student-services.js','server/logistics.js','scripts/check-wechat-login.mjs','project.config.json','deploy/windows','web/dist'];
 for(const name of allowlist){const target=join(app,name);mkdirSync(dirname(target),{recursive:true});cpSync(join(root,name),target,{recursive:true});}
 cpSync(join(root,'deploy/windows/.env.example'),join(app,'.env.example'));
 const entries=[];

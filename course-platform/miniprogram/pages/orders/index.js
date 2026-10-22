@@ -8,6 +8,7 @@ Page({
   applyFilter(){this.setData({visible:this.data.orders.filter(o=>this.data.filter==='全部'||(this.data.filter==='已支付'?o.status==='paid':o.status==='pending'))});},
   openCourse(e){wx.navigateTo({url:'/pages/course/index?id='+e.currentTarget.dataset.id});},
   pay(e){wx.navigateTo({url:'/pages/checkout/index?courseId='+e.currentTarget.dataset.course+'&orderId='+e.currentTarget.dataset.id});},
+  shipment(e){wx.navigateTo({url:'/pages/shipments/index?orderId='+encodeURIComponent(e.currentTarget.dataset.id)});},
   refresh(){this.load().then(()=>wx.showToast({title:'订单状态已刷新',icon:'none'}));},
   discover(){wx.switchTab({url:'/pages/discover/index'});},
   copy(e){wx.setClipboardData({data:e.currentTarget.dataset.id});}

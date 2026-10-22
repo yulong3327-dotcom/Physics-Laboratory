@@ -19,6 +19,12 @@ export function openDatabase(filename, uploadsDir, {seedDemoContent=true}={}) {
     CREATE TABLE IF NOT EXISTS enrollments (userId TEXT NOT NULL REFERENCES users(id), courseId TEXT NOT NULL REFERENCES courses(id), createdAt TEXT NOT NULL, PRIMARY KEY (userId,courseId));
     CREATE TABLE IF NOT EXISTS progress (userId TEXT NOT NULL REFERENCES users(id), lessonId TEXT NOT NULL REFERENCES lessons(id), position REAL NOT NULL, duration REAL NOT NULL, completed INTEGER NOT NULL, updatedAt TEXT NOT NULL, PRIMARY KEY (userId,lessonId));
     CREATE TABLE IF NOT EXISTS sms_codes (phone TEXT PRIMARY KEY, hash TEXT NOT NULL, expires INTEGER NOT NULL, attempts INTEGER NOT NULL, sentAt INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS student_contacts (userId TEXT PRIMARY KEY REFERENCES users(id), contactPhone TEXT NOT NULL DEFAULT '', wechatId TEXT NOT NULL DEFAULT '', updatedAt TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS student_addresses (id TEXT PRIMARY KEY, userId TEXT NOT NULL REFERENCES users(id), recipient TEXT NOT NULL, phone TEXT NOT NULL, province TEXT NOT NULL, city TEXT NOT NULL, district TEXT NOT NULL, detail TEXT NOT NULL, isDefault INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS idx_student_addresses_user ON student_addresses(userId);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_student_addresses_default ON student_addresses(userId) WHERE isDefault=1;
+    CREATE TABLE IF NOT EXISTS shipments (id TEXT PRIMARY KEY, orderId TEXT UNIQUE NOT NULL REFERENCES orders(id), userId TEXT NOT NULL REFERENCES users(id), courseId TEXT NOT NULL REFERENCES courses(id), addressSnapshot TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','shipped','delivered','cancelled')), carrier TEXT NOT NULL DEFAULT '', trackingNumber TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, shippedAt TEXT, deliveredAt TEXT);
+    CREATE INDEX IF NOT EXISTS idx_shipments_user ON shipments(userId,createdAt);
     CREATE TABLE IF NOT EXISTS media_sessions (hash TEXT PRIMARY KEY, sessionHash TEXT NOT NULL REFERENCES sessions(hash) ON DELETE CASCADE, expires INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS virtual_payments (id TEXT PRIMARY KEY, orderId TEXT NOT NULL REFERENCES orders(id), openid TEXT NOT NULL, productId TEXT NOT NULL, amount INTEGER NOT NULL, env INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', transactionId TEXT UNIQUE, createdAt TEXT NOT NULL, checkedAt INTEGER NOT NULL DEFAULT 0, deliveredAt TEXT, error TEXT, paidAt TEXT, refundedAt TEXT, duplicatePayment INTEGER NOT NULL DEFAULT 0, remainingAmount INTEGER, refundFinal INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS virtual_refunds (id TEXT PRIMARY KEY,attemptId TEXT NOT NULL REFERENCES virtual_payments(id),refundOrderId TEXT,wxRefundId TEXT,payWxOrderId TEXT,amount INTEGER,expectedAmount INTEGER,linkVerified INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'pending',createdAt TEXT NOT NULL,checkedAt INTEGER NOT NULL DEFAULT 0,error TEXT,UNIQUE(attemptId,refundOrderId),UNIQUE(attemptId,wxRefundId));
@@ -46,6 +52,9 @@ export function openDatabase(filename, uploadsDir, {seedDemoContent=true}={}) {
   if(!courseColumns.has('coverImage')) db.exec("ALTER TABLE courses ADD COLUMN coverImage TEXT NOT NULL DEFAULT ''");
   if(!courseColumns.has('detailImages')) db.exec("ALTER TABLE courses ADD COLUMN detailImages TEXT NOT NULL DEFAULT '[]'");
   if(!courseColumns.has('productId')) db.exec("ALTER TABLE courses ADD COLUMN productId TEXT NOT NULL DEFAULT ''");
+  if(!courseColumns.has('shippingEnabled')) db.exec('ALTER TABLE courses ADD COLUMN shippingEnabled INTEGER NOT NULL DEFAULT 0');
+  const shipmentColumns=new Set(db.prepare('PRAGMA table_info(shipments)').all().map(column=>column.name));
+  if(!shipmentColumns.has('courierCode')) db.exec("ALTER TABLE shipments ADD COLUMN courierCode TEXT NOT NULL DEFAULT ''");
   if (!db.prepare('SELECT id FROM courses LIMIT 1').get() && seedDemoContent) seed(db, uploadsDir);
   return db;
 }
