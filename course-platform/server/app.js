@@ -84,7 +84,7 @@ export function createApp(options={}) {
   }
   const enrolled=(userId,courseId)=>Boolean(userId && get('SELECT 1 FROM enrollments WHERE userId=? AND courseId=?',userId,courseId));
   function enroll(userId,courseId) {run('INSERT OR IGNORE INTO enrollments VALUES(?,?,?)',userId,courseId,now());}
-  function createUser({phone=null,openid=null,name='知课同学'}) {
+  function createUser({phone=null,openid=null,name='玉龙同学'}) {
     const id=randomUUID();run('INSERT INTO users VALUES(?,?,?,?,?)',id,phone,openid,name,now());
     if(get("SELECT 1 FROM courses WHERE id='course-experience' AND status='published' AND price=0")) enroll(id,'course-experience');
     return get('SELECT * FROM users WHERE id=?',id);

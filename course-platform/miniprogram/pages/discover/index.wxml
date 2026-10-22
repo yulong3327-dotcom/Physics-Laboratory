@@ -1,14 +1,21 @@
 <view class="page tab-page">
-  <view class="between"><view><view class="eyebrow">ZHIKE LEARNING</view><view class="page-title">把每一步，学扎实</view></view><view class="brand-mark">知<view class="brand-dot"></view></view></view>
-  <view class="search-box"><text class="search-icon"></text><input placeholder="搜索感兴趣的课程、老师" value="{{search}}" bindinput="searchInput" bindconfirm="search" confirm-type="search"/><view bindtap="search" class="search-submit">搜索</view></view>
-  <view class="hero" bindtap="explore"><view class="hero-label"><view class="hero-label-dot"></view>让进步，看得见</view><view class="hero-title"><view>好课程，陪你</view><view>走得更远。</view></view><view class="hero-description">精选课程 · 自主选课 · 随时回看</view><view class="hero-button">发现适合我的课程 <text>↗</text></view><view class="hero-art"><view class="art-orbit orbit-one"></view><view class="art-orbit orbit-two"></view><view class="art-book"><view></view><view></view><view></view></view><view class="art-star">✦</view><view class="art-small-star">✦</view><view class="art-caption"><view>LEARN</view><view>&amp; GROW</view></view></view></view>
-  <view class="feature-row"><view><view class="feature-icon feature-orange">▶</view><text>优质课程</text></view><view><view class="feature-icon feature-blue">▤</view><text>配套讲义</text></view><view><view class="feature-icon feature-green">✓</view><text>记录进步</text></view></view>
-  <view class="section-head" id="course-list"><view class="section-title">为你推荐<text class="title-dot">.</text></view><picker mode="selector" range="{{grades}}" bindchange="chooseGrade"><view class="section-link">{{grade}}⌄</view></picker></view>
+  <view class="brand-header"><view class="brand-mark">YL</view><view><view class="brand-name">{{brand.name}}</view><view class="brand-byline">玉龙的化学课堂 / YULONG</view></view><button class="about-link" bindtap="about">认识玉龙 ↗</button></view>
+  <view class="hero">
+    <view class="hero-kicker"><view></view>玉龙老师的线上课堂</view>
+    <view class="hero-title">学化学，<view>和玉龙一起。</view></view>
+    <view class="hero-description">把知识讲清楚，<view>让每一次理解更扎实。</view></view>
+    <button class="hero-button" bindtap="explore">看看我的课程 <text>↗</text></button>
+    <view class="hero-art"><view class="orbit orbit-one"></view><view class="orbit orbit-two"></view><view class="creator-monogram"><image src="/assets/yulong-avatar.webp" mode="aspectFill"/><view>玉龙化学</view></view><view class="chem-label">CHEMISTRY<view>with YULONG</view></view><view class="hero-star">✦</view></view>
+    <view class="hero-bottom"><text>理解 · 练习 · 回看</text><text>一起学扎实 / 01</text></view>
+  </view>
+  <view class="creator-entry" bindtap="about"><view class="entry-mark">玉龙<text>的日常</text></view><view class="entry-copy"><view>课程之外，在 B站见</view><text>了解我 · 访问我的 B站主页</text></view><text class="entry-arrow">↗</text></view>
+  <view class="section-head" id="course-list"><view><view class="eyebrow">THE CLASSROOM</view><view class="section-title">玉龙的课程</view></view><picker mode="selector" range="{{grades}}" bindchange="chooseGrade"><view class="section-link">{{grade}} ⌄</view></picker></view>
+  <view class="search-box"><text class="search-icon"></text><input placeholder="搜索课程或知识点" value="{{search}}" bindinput="searchInput" bindconfirm="search" confirm-type="search"/><view bindtap="search" class="search-submit">搜索</view></view>
   <scroll-view scroll-x class="subjects"><view class="filter-row"><view wx:for="{{subjects}}" wx:key="*this" data-value="{{item}}" bindtap="chooseSubject" class="filter {{subject === item ? 'active' : ''}}">{{item}}</view></view></scroll-view>
-  <view wx:if="{{demoMode}}" class="demo-note"><view class="pill-dot"></view>当前为演示环境，课程与交易用于功能体验</view>
-  <view wx:if="{{loading}}" class="loading">正在寻找好课程…</view>
+  <view wx:if="{{demoMode}}" class="demo-note"><view class="pill-dot"></view>演示环境 · 课程与交易仅用于功能体验</view>
+  <view wx:if="{{loading}}" class="loading">正在打开玉龙的课程…</view>
   <view wx:elif="{{error}}" class="error-card card"><view>{{error}}</view><button class="secondary" bindtap="load">重新加载</button></view>
   <view wx:elif="{{!courses.length}}" class="empty"><view class="empty-icon">▤</view><view class="empty-title">暂时没有匹配的课程</view><view class="empty-copy">试试其他科目或搜索词</view><button class="secondary" bindtap="reset">查看全部课程</button></view>
   <block wx:else><course-card wx:for="{{courses}}" wx:key="id" course="{{item}}"/></block>
-  <view class="footer-copy" wx:if="{{courses.length}}">认真学习的每一天，都在靠近更好的自己</view>
+  <view class="footer-copy">{{brand.name}} · 认真对待每一次理解</view>
 </view>

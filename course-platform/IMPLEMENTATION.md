@@ -1,6 +1,6 @@
 # 课程小程序实施约定
 
-项目品牌：知课 ZHIKE。参考 UI：浅灰背景、白色圆角卡片、橙色主色、黑色粗标题、老师头像、底部导航。所有文案中文。
+项目品牌：玉龙AI优课。以玉龙老师个人化学课堂为主线，使用奶油色背景、暖橙与墨绿文字、个人头像、圆角卡片及底部导航。个人公开主页为 https://space.bilibili.com/329076624 ，网页直接打开，小程序提供复制链接。不得编造个人履历、教学成果或尚未实现的 AI 功能。所有主要文案中文。
 
 目录：server/ Node.js Express + node:sqlite；web/ React Vite；miniprogram/ 原生微信小程序。
 后端负责人只编辑 server/；学生网页负责人只编辑 web/src/student/；小程序负责人只编辑 miniprogram/；主代理维护根目录、web 配置、shared、后台和验证。

@@ -9,24 +9,25 @@
     "pages/learn/index",
     "pages/orders/index",
     "pages/materials/index",
-    "pages/document/index"
+    "pages/document/index",
+    "pages/about/index"
   ],
   "window": {
-    "navigationBarTitleText": "知课",
-    "navigationBarBackgroundColor": "#f7f8fa",
+    "navigationBarTitleText": "玉龙AI优课",
+    "navigationBarBackgroundColor": "#f7f3e9",
     "navigationBarTextStyle": "black",
-    "backgroundColor": "#f7f8fa",
+    "backgroundColor": "#f7f3e9",
     "backgroundTextStyle": "dark"
   },
   "tabBar": {
     "custom": true,
-    "color": "#92959c",
-    "selectedColor": "#ff841e",
-    "backgroundColor": "#ffffff",
+    "color": "#7b8173",
+    "selectedColor": "#bb5e35",
+    "backgroundColor": "#fffdf7",
     "list": [
-      {"pagePath": "pages/discover/index", "text": "发现课程"},
+      {"pagePath": "pages/discover/index", "text": "玉龙的课"},
       {"pagePath": "pages/my-courses/index", "text": "我的课程"},
-      {"pagePath": "pages/profile/index", "text": "个人中心"}
+      {"pagePath": "pages/profile/index", "text": "我的"}
     ]
   },
   "style": "v2",
