@@ -1,5 +1,7 @@
 # 生产部署
 
+用户当前服务器为 Windows Server，域名与配置参数见 [Windows Server 部署准备](deploy/windows/README.md)。以下 Docker Compose 方案适用于 Linux 服务器。
+
 生产环境以 Docker Compose 运行 API、学生网页和管理后台。SQLite 数据库及上传文件共同保存在 `course-data` 卷中，容器端口只绑定到服务器本机，由 HTTPS 反向代理对外提供服务。
 
 ## 前置条件
