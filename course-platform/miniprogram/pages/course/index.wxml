@@ -3,7 +3,6 @@
 <view wx:elif="{{course}}" class="course-page">
   <image wx:if="{{course.coverImage && !imageErrors.cover}}" src="{{course.coverImage}}" mode="widthFix" class="course-cover" data-key="cover" binderror="imageFailed"/>
   <view class="course-header">
-    <view class="course-brand" bindtap="about"><text class="course-brand-mark">YL</text><text>玉龙AI优课</text><text class="course-brand-link">认识玉龙 ↗</text></view>
     <view class="course-kicker"><text>{{course.subject}} · {{course.grade}}</text><button open-type="share" class="share-button">分享 ↗</button></view>
     <view class="course-title">{{course.title}}</view><view class="course-subtitle">{{course.subtitle}}</view>
     <view wx:if="{{course.isInternalTest}}" class="notice internal-test">内测课程 · 用于验证购买、看课和讲义下载，请按页面所列内容购买。</view>

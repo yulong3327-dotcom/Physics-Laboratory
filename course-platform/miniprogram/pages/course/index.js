@@ -15,6 +15,5 @@ Page({
   action(){if(this.data.course.enrolled){const next=this.data.lessons.find(l=>!l.completed)||this.data.lessons[0];if(next)wx.navigateTo({url:'/pages/learn/index?courseId='+this._id+'&lessonId='+next.id});else failToast(new Error('老师正在准备课时内容，请稍后再来'));}else this.purchase();},
   download(e){const item=this.data.materials.find(m=>m.id===e.currentTarget.dataset.id);if(!item)return;downloadMaterial(item).catch(failToast);},
   materials(){this.setData({tab:'materials'});wx.pageScrollTo({selector:'#course-tabs',duration:250});},
-  about(){wx.navigateTo({url:'/pages/about/index'});},
-  onShareAppMessage(){return{title:this.data.course?this.data.course.title:'玉龙AI优课 · 和玉龙一起学化学',path:'/pages/course/index?id='+this._id};}
+  onShareAppMessage(){return{title:this.data.course?this.data.course.title:'知课 · 陪伴每一次进步',path:'/pages/course/index?id='+this._id};}
 });

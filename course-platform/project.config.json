@@ -1,7 +1,7 @@
 {
   "miniprogramRoot": "miniprogram/",
-  "projectname": "玉龙AI优课",
-  "description": "玉龙AI优课微信小程序与个人课程管理平台",
+  "projectname": "知课课程小程序",
+  "description": "知课课程小程序与课程管理平台",
   "setting": {
     "es6": true,
     "postcss": true,
