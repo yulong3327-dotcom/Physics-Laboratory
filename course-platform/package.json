@@ -21,13 +21,24 @@
     "package:windows": "npm run build && node scripts/package-windows.mjs"
   },
   "dependencies": {
+    "hls.js": "^1.7.3",
     "lucide-react": "^0.468.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "vod-js-sdk-v6": "^1.8.0",
+    "tencentcloud-sdk-nodejs-common": "4.1.220"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.4",
     "vite": "^7.1.12"
+  },
+  "overrides": {
+    "vod-js-sdk-v6": {
+      "axios": "^1.20.0"
+    },
+    "tencentcloud-sdk-nodejs-common": {
+      "uuid": "^11.1.1"
+    }
   }
 }

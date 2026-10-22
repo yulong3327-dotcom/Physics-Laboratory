@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {ArrowLeft,ArrowUp,ArrowDown,BookOpen,Check,FileText,ImagePlus,LoaderCircle,Pencil,Play,Plus,Settings2,Trash2,Upload,X} from 'lucide-react';
 import {api,uploadFile} from '../shared/api';
+import {uploadVodVideo} from '../shared/vod-upload';
 
 const limit=250*1024*1024;
 const bytes=n=>n>=1024*1024?`${(n/1024/1024).toFixed(1)} MB`:`${(n/1024).toFixed(1)} KB`;
@@ -9,7 +10,7 @@ const reorder=(list,index,offset)=>{const next=[...list],target=index+offset;if(
 
 function Progress({task,cancel}){
  if(!task)return null;
- return <div className="adm-transfer" role="status" aria-live="polite"><div><Upload size={16}/><b>{task.name}</b><span>{task.percent===100?'正在保存…':task.percent===null?'正在上传…':`${task.percent}%`}</span>{cancel&&<button type="button" onClick={cancel}>取消上传</button>}</div><progress max="100" value={task.percent??undefined}/><small>{task.hint||'上传完成后请保存课时，内容才会生效。'}</small></div>;
+ return <div className="adm-transfer" role="status" aria-live="polite"><div><Upload size={16}/><b>{task.name}</b><span>{task.label||(task.percent===100?'正在保存…':task.percent===null?'正在上传…':`${task.percent}%`)}</span>{cancel&&<button type="button" onClick={cancel}>取消上传</button>}</div><progress max="100" value={task.percent??undefined}/><small>{task.hint||'上传完成后请保存课时，内容才会生效。'}</small></div>;
 }
 function Empty({children}){return <div className="adm-empty"><BookOpen size={28}/><p>{children}</p></div>}
 function SortButtons({index,count,onMove,disabled}){return <div className="adm-sort-buttons"><button type="button" disabled={disabled||index===0} onClick={()=>onMove(-1)} title="上移" aria-label="上移"><ArrowUp size={16}/></button><button type="button" disabled={disabled||index===count-1} onClick={()=>onMove(1)} title="下移" aria-label="下移"><ArrowDown size={16}/></button></div>}
@@ -41,12 +42,85 @@ export default function CourseEditor({initial,onClose,onSaved,notify}){
 function Select({label,value,values,labels,onChange}){return <label>{label}<select value={value||values[0]} onChange={e=>onChange(e.target.value)}>{values.map((v,index)=><option value={v} key={v}>{labels?.[index]||v}</option>)}</select></label>}
 
 function LessonModal({lesson,courseId,close,saved}){
+ const initialVod=/^vod:/.test(lesson.videoUrl||'');
  const [value,setValue]=useState({...lesson}),[busy,setBusy]=useState(false),[task,setTask]=useState(null),[error,setError]=useState(''),[dirty,setDirty]=useState(false);
- const controller=useRef(null);useEffect(()=>()=>controller.current?.abort(),[]);
+ const [mode,setMode]=useState(initialVod||!lesson.videoUrl?'vod':'local'),[config,setConfig]=useState(null),[configError,setConfigError]=useState(''),[configLoading,setConfigLoading]=useState(true);
+ const [media,setMedia]=useState(initialVod?{fileId:lesson.videoUrl.slice(4),status:'processing'}:null),[mediaError,setMediaError]=useState(''),[checking,setChecking]=useState(false);
+ const controller=useRef(null),lastFile=useRef(null),alive=useRef(true),mediaRequest=useRef(0);
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;mediaRequest.current++;controller.current?.abort()}},[]);
  const set=(key,data)=>{setValue(v=>({...v,[key]:data}));setDirty(true)};
  const dismiss=()=>{if((dirty||task)&&!window.confirm(task?'视频还在上传，取消并关闭？':'课时修改尚未保存，确定关闭？'))return;controller.current?.abort();close()};
  useEffect(()=>{const onKey=e=>{if(e.key==='Escape')dismiss()};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey)},[dirty,task]);
- async function upload(e){const file=e.target.files[0];e.target.value='';if(!file)return;setError('');if(file.size>limit){setError('视频超过 250 MB，请压缩或拆分课时后上传');return}if(!/\.(mp4|webm|mov)$/i.test(file.name)){setError('请选择 MP4、WebM 或 MOV 视频');return}const ac=new AbortController();controller.current=ac;setTask({name:file.name,percent:0});try{const result=await uploadFile('/admin/uploads',file,{signal:ac.signal,onProgress:p=>setTask({name:file.name,percent:p.percent})});set('videoUrl',result.url);setValue(v=>({...v,uploadId:result.uploadId}));setDirty(true)}catch(e){if(e.name!=='AbortError')setError(e.message)}finally{controller.current=null;setTask(null)}}
- async function submit(e){e.preventDefault();setBusy(true);setError('');try{await api(value.id?`/admin/lessons/${value.id}`:`/admin/courses/${courseId}/lessons`,{method:value.id?'PUT':'POST',body:{title:value.title,duration:Number(value.duration),sort:Number(value.sort)||0,videoUrl:value.videoUrl,isPreview:!!value.isPreview}});await saved()}catch(e){setError(e.message)}finally{setBusy(false)}}
- return <div className="adm-modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)dismiss()}}><div className="adm-modal" role="dialog" aria-modal="true" aria-label="编辑视频课时"><header><div><span className="adm-eyebrow">LESSON STUDIO</span><h2>{value.id?'编辑课时':'添加视频课时'}</h2></div><button title="关闭" onClick={dismiss}><X size={21}/></button></header><form onSubmit={submit}><label>课时名称<input autoFocus required maxLength={200} value={value.title} onChange={e=>set('title',e.target.value)} placeholder="第一讲 · 化学计量"/></label><div className="adm-form-grid"><label>时长（秒）<input type="number" min="1" max="86400" step="1" required value={value.duration} onChange={e=>set('duration',e.target.value)}/><small>例如 30 分钟为 1800 秒。</small></label><label>排序（从 0 开始）<input type="number" min="0" step="1" value={value.sort} onChange={e=>set('sort',e.target.value)}/></label></div><label>视频地址<input value={value.videoUrl||''} onChange={e=>set('videoUrl',e.target.value)} placeholder="上传后自动填写，可留空稍后补充"/><small>上传本地视频可由平台保护访问权限。外部链接请使用带鉴权的 HTTPS 视频服务。</small></label><label className={`adm-upload-zone ${task?'disabled':''}`}><Upload size={24}/><b>{value.videoUrl?'替换视频文件':'上传视频文件'}</b><span>MP4 / WebM / MOV · 最大 250 MB</span><input type="file" accept=".mp4,.webm,.mov" disabled={!!task||busy} onChange={upload}/></label><Progress task={task} cancel={()=>controller.current?.abort()}/><label className="adm-checkbox"><input type="checkbox" checked={!!value.isPreview} onChange={e=>set('isPreview',e.target.checked)}/>向未购买学员开放整节免费试看</label>{error&&<div className="adm-error" role="alert">{error}</div>}<div className="adm-modal-actions"><button type="button" className="adm-secondary" disabled={busy} onClick={dismiss}>取消</button><button className="adm-primary" disabled={busy||!!task}>{busy?<LoaderCircle className="adm-spin" size={17}/>:<Check size={17}/>}保存课时</button></div></form></div></div>;
+ useEffect(()=>{const before=e=>{if(dirty||task){e.preventDefault();e.returnValue=''}};window.addEventListener('beforeunload',before);return()=>window.removeEventListener('beforeunload',before)},[dirty,task]);
+ async function loadConfig(){setConfigLoading(true);setConfigError('');try{const result=await api('/admin/vod/config');if(alive.current)setConfig(result)}catch(e){if(alive.current)setConfigError(e.message)}finally{if(alive.current)setConfigLoading(false)}}
+ useEffect(()=>{loadConfig()},[]);
+ function applyMedia(result){
+  setMedia(result);setMediaError('');
+  if(result.status==='ready')setValue(v=>({...v,videoUrl:`vod:${result.fileId}`,...(Number(result.duration)>0?{duration:Math.max(1,Math.round(result.duration))}:{})}));
+ }
+ async function checkMedia(fileId){
+  const request=++mediaRequest.current;setChecking(true);
+  try{const result=await api(`/admin/vod/media/${encodeURIComponent(fileId)}`);if(alive.current&&request===mediaRequest.current)applyMedia(result)}
+  catch(e){if(alive.current&&request===mediaRequest.current)setMediaError(e.message)}
+  finally{if(alive.current&&request===mediaRequest.current)setChecking(false)}
+ }
+ useEffect(()=>{
+  if(mode!=='vod'||task||!media?.fileId||media.status==='ready'||media.status==='failed'||mediaError)return;
+  const timer=setTimeout(()=>checkMedia(media.fileId),4000);
+  return()=>clearTimeout(timer);
+ },[mode,media,mediaError,!!task]);
+ const canUploadVod=!!config?.uploadConfigured&&!!config?.playbackConfigured;
+ const pendingVod=mode==='vod'&&!!value.videoUrl&&(media?.status!=='ready'||media?.fileId!==value.videoUrl.slice(4)||!!mediaError);
+ function changeMode(next){
+  if(next===mode)return;
+  mediaRequest.current++;setChecking(false);setMode(next);setMedia(null);setMediaError('');setError('');lastFile.current=null;set('videoUrl','');
+ }
+ async function sendVideo(file){
+  setError('');setMediaError('');
+  if(!/\.(mp4|webm|mov)$/i.test(file.name)){setError('请选择 MP4、WebM 或 MOV 视频');return}
+  if(mode==='local'&&file.size>limit){setError('服务器上传最大 250 MB，大课时请选择云点播直传');return}
+  if(mode==='vod'&&!canUploadVod){setError('请先完成云点播上传和播放配置，再上传视频');return}
+  mediaRequest.current++;setChecking(false);
+  const ac=new AbortController();controller.current=ac;lastFile.current=file;
+  const hint=mode==='vod'?'视频直接上传云点播，完成处理后可保存课时。':'上传完成后请保存课时。';
+  setTask({name:file.name,percent:0,hint});
+  try{
+   if(mode==='vod'){
+    const result=await uploadVodVideo(file,{signal:ac.signal,onProgress:p=>{if(alive.current)setTask({name:file.name,percent:p.percent,hint,label:p.confirming?'正在确认云端视频…':undefined})}});
+    if(!alive.current)return;
+    set('videoUrl',`vod:${result.fileId}`);applyMedia(result);
+   }else{
+    const result=await uploadFile('/admin/uploads',file,{signal:ac.signal,onProgress:p=>{if(alive.current)setTask({name:file.name,percent:p.percent,hint})}});
+    if(alive.current)set('videoUrl',result.url);
+   }
+  }catch(e){if(alive.current&&e.name!=='AbortError')setError(e.message)}
+  finally{if(alive.current){controller.current=null;setTask(null)}}
+ }
+ async function retryProcessing(){
+  setChecking(true);setMediaError('');
+  const request=++mediaRequest.current;
+  try{const result=await api(`/admin/vod/media/${encodeURIComponent(media.fileId)}/transcode`,{method:'POST',body:{}});if(alive.current&&request===mediaRequest.current)applyMedia(result)}
+  catch(e){if(alive.current&&request===mediaRequest.current)setMediaError(e.message)}
+  finally{if(alive.current&&request===mediaRequest.current)setChecking(false)}
+ }
+ function upload(e){const file=e.target.files[0];e.target.value='';if(file)sendVideo(file)}
+ async function submit(e){
+  e.preventDefault();if(task||pendingVod)return;
+  setBusy(true);setError('');
+  try{await api(value.id?`/admin/lessons/${value.id}`:`/admin/courses/${courseId}/lessons`,{method:value.id?'PUT':'POST',body:{title:value.title,duration:Number(value.duration),sort:Number(value.sort)||0,videoUrl:value.videoUrl,isPreview:!!value.isPreview}});await saved()}
+  catch(e){setError(e.message)}finally{setBusy(false)}
+ }
+ return <div className="adm-modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)dismiss()}}><div className="adm-modal adm-video-modal" role="dialog" aria-modal="true" aria-label="编辑视频课时"><header><div><span className="adm-eyebrow">LESSON STUDIO</span><h2>{value.id?'编辑课时':'添加视频课时'}</h2></div><button title="关闭" onClick={dismiss}><X size={21}/></button></header><form onSubmit={submit}>
+  <label>课时名称<input autoFocus required maxLength={200} value={value.title} onChange={e=>set('title',e.target.value)} placeholder="第一讲 · 化学计量"/></label>
+  <div className="adm-form-grid"><label>时长（秒）<input type="number" min="1" max="86400" step="1" required value={value.duration} onChange={e=>set('duration',e.target.value)}/><small>{mode==='vod'?'云端处理完成后自动填写，可手动调整。':'例如 30 分钟为 1800 秒。'}</small></label><label>排序（从 0 开始）<input type="number" min="0" step="1" value={value.sort} onChange={e=>set('sort',e.target.value)}/></label></div>
+  <fieldset className="adm-video-source" disabled={!!task||busy}><legend>视频上传方式</legend><label><input type="radio" name="video-source" checked={mode==='vod'} onChange={()=>changeMode('vod')}/><span><b>云点播直传</b><small>适合正式课程，支持 CDN 加速播放</small></span></label><label><input type="radio" name="video-source" checked={mode==='local'} onChange={()=>changeMode('local')}/><span><b>服务器存储</b><small>兼容已有视频，占用服务器带宽</small></span></label></fieldset>
+  {mode==='vod'&&<div className={`adm-vod-config ${canUploadVod?'ready':''}`} role="status"><div>{configLoading?<><LoaderCircle size={15} className="adm-spin"/><span>正在检查云点播配置…</span></>:canUploadVod?<><Check size={16}/><span>云点播已就绪 · 视频直接上传至腾讯云</span></>:<><Settings2 size={16}/><span>{configError?'暂时无法获取云点播配置':'云点播尚未就绪'}</span></>}<button type="button" disabled={configLoading||!!task} onClick={loadConfig}>重新检查</button></div>{!configLoading&&!canUploadVod&&<p>{configError||config?.message||(!config?.uploadConfigured?'请完成服务器的云点播上传授权。':'请完成云点播域名、转码与播放鉴权配置。')}配置完成后可在此重新检查。</p>}</div>}
+  {mode==='local'&&<label>视频地址<input value={value.videoUrl||''} onChange={e=>set('videoUrl',e.target.value)} placeholder="上传后自动填写，可留空稍后补充"/><small>服务器视频保留购买鉴权。外部地址请使用带鉴权的 HTTPS 视频服务。</small></label>}
+  <label className={`adm-upload-zone ${task||busy||(mode==='vod'&&!canUploadVod)?'disabled':''}`}><Upload size={24}/><b>{value.videoUrl?'替换视频文件':mode==='vod'?'上传至云点播':'上传到服务器'}</b><span>{mode==='vod'?'MP4 / WebM / MOV · 云端处理后可保存':'MP4 / WebM / MOV · 最大 250 MB'}</span><input type="file" accept=".mp4,.webm,.mov" disabled={!!task||busy||(mode==='vod'&&!canUploadVod)} onChange={upload}/></label>
+  <Progress task={task} cancel={()=>controller.current?.abort()}/>
+  {mode==='vod'&&media&&!task&&<div className={`adm-vod-media ${media.status}`} role="status" aria-live="polite"><div>{media.status==='ready'?<Check size={18}/>:media.status==='processing'?<LoaderCircle size={18} className="adm-spin"/>:<X size={18}/>}<b>{media.status==='ready'?'视频已就绪':media.status==='failed'?'视频处理失败':'云端处理中'}</b><button type="button" disabled={checking} onClick={()=>{setMediaError('');checkMedia(media.fileId)}}>{checking?'正在检查…':'刷新状态'}</button></div>{media.name&&<span className="adm-vod-filename">{media.name}</span>}<p>{media.status==='ready'?'保存课时后，学员按课程权限观看。':media.status==='failed'?(media.errorMessage||'请重试云端处理，或重新上传视频。'):'视频已上传，正在转码与检查播放状态；完成后才能保存。'}</p>{mediaError&&<p className="adm-vod-warning">检查失败：{mediaError}，请刷新状态重试。</p>}{media.status==='failed'&&<button type="button" className="adm-secondary" disabled={!canUploadVod||busy||checking} onClick={retryProcessing}>重新处理视频</button>}</div>}
+  <label className="adm-checkbox"><input type="checkbox" checked={!!value.isPreview} onChange={e=>set('isPreview',e.target.checked)}/>向未购买学员开放整节免费试看</label>
+  {error&&<div className="adm-error" role="alert"><span>{error}</span>{lastFile.current&&!task&&<button type="button" disabled={busy||(mode==='vod'&&!canUploadVod)} onClick={()=>sendVideo(lastFile.current)}>重试上传</button>}</div>}
+  <div className="adm-modal-actions"><button type="button" className="adm-secondary" disabled={busy} onClick={dismiss}>取消</button><button className="adm-primary" disabled={busy||!!task||pendingVod}>{busy?<LoaderCircle className="adm-spin" size={17}/>:<Check size={17}/>}保存课时</button></div>
+ </form></div></div>;
 }

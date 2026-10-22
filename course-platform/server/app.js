@@ -13,6 +13,7 @@ import { openDatabase } from './database.js';
 import { wechatProvider, WechatAuthError, validWechatOpenid } from './wechat.js';
 import { smsProvider } from './sms.js';
 import { virtualPaymentProvider, VirtualPaymentError } from './virtual-payment.js';
+import { vodProvider, vodReference, vodFileId, VodError } from './vod.js';
 
 const here=dirname(fileURLToPath(import.meta.url));
 const fail=(status,message)=>Object.assign(new Error(message),{status});
@@ -40,6 +41,7 @@ export function createApp(options={}) {
   const wechat=options.wechatProvider||wechatProvider(env);
   const sms=options.smsProvider||smsProvider(env);
   const virtualPayment=options.virtualPaymentProvider||virtualPaymentProvider(env);
+  const vod=options.vodProvider||vodProvider(env,{client:options.vodClient});
   const virtualMode=Boolean(env.WECHAT_VIRTUAL_OFFER_ID);
   const fetchVideo=options.mediaFetch||fetch;
   const smsConfigured=sms.configured;
@@ -592,9 +594,16 @@ export function createApp(options={}) {
     if(parsed.protocol!=='https:' || parsed.username || parsed.password || (parsed.port && parsed.port!=='443') || !remoteHosts.has(parsed.hostname.toLowerCase())) throw fail(503,'此视频尚未配置受保护的视频源，请联系管理员上传视频');
     return parsed;
   }
-  const play=(req,res)=>{
+  const play=asyncRoute(async(req,res)=>{
     const lesson=getAccessibleLesson(req);const p=req.auth?.userId?get('SELECT * FROM progress WHERE userId=? AND lessonId=?',req.auth.userId,lesson.id):null;
     if(!lesson.videoUrl) throw fail(404,'本课时视频尚未上传，请稍后再试');
+    const fileId=vodReference(lesson.videoUrl);
+    if(fileId) {
+      const record=ownedVodMedia(fileId),media=await refreshVodMedia(record);
+      const playback=await vod.playback(media,req.auth?.expires);
+      res.setHeader('Cache-Control','private, no-store');
+      return res.json({...lessonShape(lesson,false),...playback,videoUrl:playback.url,progress:p?.position||0,demoVideo:false});
+    }
     const uploadId=uploadedVideoId(lesson);
     if(uploadId && !get("SELECT 1 FROM uploads WHERE id=? AND kind='video'",uploadId))throw fail(404,'视频文件不存在，请联系管理员重新上传');
     if(!uploadId)allowedRemoteVideo(lesson.videoUrl);
@@ -602,11 +611,11 @@ export function createApp(options={}) {
     const media=signedMedia(lesson,req.auth);
     res.setHeader('Cache-Control','private, no-store');
     res.json({...lessonShape(lesson,false),url:media.url,videoUrl:media.url,expiresAt:media.expiresAt,requiresAuthorizedDownload:Boolean(req.auth),playbackAuth:req.auth?'session':'public',progress:p?.position||0,demoVideo:lesson.videoUrl.includes('interactive-examples.mdn')});
-  };
+  });
   app.get(['/api/lessons/:id/play','/api/lessons/:id'],play);
   app.get('/api/lessons/:id/stream',asyncRoute(async(req,res)=>{
     const lesson=get('SELECT * FROM lessons WHERE id=?',req.params.id);
-    if(!lesson || uploadedVideoId(lesson) || req.query.lessonId!==lesson.id)throw fail(404,'视频不存在');
+    if(!lesson || uploadedVideoId(lesson) || vodReference(lesson.videoUrl) || req.query.lessonId!==lesson.id)throw fail(404,'视频不存在');
     verifyMediaRequest(req,lesson,`remote:${hash(lesson.videoUrl)}`);
     let target=allowedRemoteVideo(lesson.videoUrl),upstream;
     const headers={'Accept':'video/*,application/octet-stream','Accept-Encoding':'identity'};
@@ -660,6 +669,73 @@ export function createApp(options={}) {
     res.json({token:issueSession(null,'admin'),user:{id:'admin',nickname:'课程管理员',name:'课程管理员',role:'admin'}});
   });
   app.use('/api/admin',admin);
+  const vodShape=record=>({provider:'tencent-vod',uploadId:record.id,fileId:record.fileId,videoUrl:record.fileId?`vod:${record.fileId}`:'',name:record.name,duration:record.duration,size:record.size,status:record.status,ready:record.status==='ready',format:record.format,taskId:record.taskId||null,errorMessage:record.error||'',createdAt:record.createdAt});
+  function ownedVodMedia(fileId) {
+    if(!vod.configured)throw fail(503,'腾讯云点播尚未配置完整，请联系管理员');
+    const record=get('SELECT * FROM vod_uploads WHERE fileId=? AND subAppId=?',fileId,vod.subAppId);
+    if(!record)throw fail(404,'此视频未通过本后台上传确认，不能关联或播放');
+    return record;
+  }
+  const vodRefreshes=new Map();
+  async function refreshVodMedia(record,{force=false}={}) {
+    if(!force && record.status==='ready' && record.checkedAt>Date.now()-30000 && record.sourceUrl && record.format)return {...record,ready:true};
+    if(vodRefreshes.has(record.id))return vodRefreshes.get(record.id);
+    const refreshing=(async()=>{
+      const remote=await vod.describe(record.fileId);
+      if(remote.sourceContext!==record.sourceContext)throw fail(403,'云点播视频与本次上传不匹配，不能关联课程');
+      let status=remote.status,error='';
+      if(!remote.ready && record.taskId) {
+        const task=await vod.taskStatus(record.taskId);
+        if(task.status==='failed'){status='failed';error=task.message;}
+      }
+      run('UPDATE vod_uploads SET name=?,status=?,duration=?,size=?,format=?,sourceUrl=?,error=?,checkedAt=? WHERE id=?',remote.name,status,remote.duration,remote.size,remote.format,remote.sourceUrl,error,Date.now(),record.id);
+      return {...get('SELECT * FROM vod_uploads WHERE id=?',record.id),ready:status==='ready'};
+    })();vodRefreshes.set(record.id,refreshing);
+    try{return await refreshing;}finally{vodRefreshes.delete(record.id);}
+  }
+  app.get('/api/admin/vod/config',asyncRoute(async(req,res)=>{
+    res.setHeader('Cache-Control','private, no-store');
+    if(!vod.configured)return res.json({...vod.publicConfig,protectionReady:false});
+    try {
+      await vod.ensureProtection();
+      res.json({...vod.publicConfig,protectionReady:true});
+    } catch(error) {
+      res.json({...vod.publicConfig,uploadConfigured:false,playbackConfigured:false,protectionReady:false,message:error instanceof VodError?error.message:'暂时无法确认云点播保护状态，请稍后重试'});
+    }
+  }));
+  app.post('/api/admin/vod/upload-signature',asyncRoute(async(req,res)=>{
+    const id=randomUUID(),sourceContext=`course-upload:${id}:${randomBytes(12).toString('hex')}`;
+    const signature=await vod.uploadSignature(sourceContext);
+    run('INSERT INTO vod_uploads(id,subAppId,sourceContext,name,createdAt) VALUES(?,?,?,?,?)',id,vod.subAppId,sourceContext,textValue(req.body.name,200),now());
+    res.setHeader('Cache-Control','private, no-store');res.json({...signature,uploadId:id,provider:'tencent-vod',subAppId:vod.subAppId});
+  }));
+  app.post('/api/admin/vod/media/confirm',asyncRoute(async(req,res)=>{
+    const fileId=vodFileId(req.body.fileId),uploadId=textValue(req.body.uploadId,80);
+    if(!fileId)throw fail(400,'请提供有效的云点播 FileId');
+    const record=get('SELECT * FROM vod_uploads WHERE id=? AND subAppId=?',uploadId,vod.subAppId);
+    if(!record)throw fail(404,'上传记录不存在或不属于当前点播应用');
+    if(record.fileId && record.fileId!==fileId)throw fail(409,'此上传记录已关联其他视频');
+    const existing=get('SELECT id FROM vod_uploads WHERE fileId=?',fileId);
+    if(existing && existing.id!==record.id)throw fail(409,'此视频已由其他上传记录确认');
+    const remote=await vod.describe(fileId);
+    if(remote.sourceContext!==record.sourceContext)throw fail(403,'云点播视频与本次上传不匹配，不能关联课程');
+    run('UPDATE vod_uploads SET fileId=?,name=?,status=?,duration=?,size=?,format=?,sourceUrl=?,checkedAt=? WHERE id=?',fileId,remote.name,remote.status,remote.duration,remote.size,remote.format,remote.sourceUrl,Date.now(),record.id);
+    if(!remote.ready && !record.taskId) {
+      const taskId=await vod.transcode(fileId,record.id);
+      run("UPDATE vod_uploads SET taskId=?,status='processing',error=NULL WHERE id=?",taskId,record.id);
+    }
+    res.json(vodShape(get('SELECT * FROM vod_uploads WHERE id=?',record.id)));
+  }));
+  app.get('/api/admin/vod/media/:fileId',asyncRoute(async(req,res)=>{
+    const media=await refreshVodMedia(ownedVodMedia(req.params.fileId),{force:true});
+    res.setHeader('Cache-Control','private, no-store');res.json(vodShape(media));
+  }));
+  app.post('/api/admin/vod/media/:fileId/transcode',asyncRoute(async(req,res)=>{
+    const record=ownedVodMedia(req.params.fileId);
+    if(record.status!=='failed')throw fail(409,'只有转码失败的视频可以重新发起转码');
+    const taskId=await vod.transcode(record.fileId,`${record.id}-${randomBytes(3).toString('hex')}`);
+    run("UPDATE vod_uploads SET taskId=?,status='processing',error=NULL,checkedAt=0 WHERE id=?",taskId,record.id);res.json(vodShape(get('SELECT * FROM vod_uploads WHERE id=?',record.id)));
+  }));
   const statistics=(req,res)=>{
     const revenue=get("SELECT COALESCE(SUM(amount),0) AS value FROM orders WHERE status='paid'").value/100;
     const students=get('SELECT COUNT(*) AS value FROM users').value,courses=get("SELECT COUNT(*) AS value FROM courses WHERE status!='archived'").value,orders=get('SELECT COUNT(*) AS value FROM orders').value;
@@ -699,16 +775,20 @@ export function createApp(options={}) {
   app.post('/api/admin/courses',(req,res)=>{const data=courseInput(req.body),id=randomUUID();run(`INSERT INTO courses(id,${Object.keys(data).join(',')},createdAt) VALUES(${Array(Object.keys(data).length+2).fill('?').join(',')})`,id,...Object.values(data),now());res.status(201).json(fullCourse(findCourse(id,true),null,true));});
   app.put('/api/admin/courses/:id',(req,res)=>{const previous=findCourse(req.params.id,true),data=courseInput(req.body,previous);run(`UPDATE courses SET ${Object.keys(data).map(k=>`${k}=?`).join(',')} WHERE id=?`,...Object.values(data),previous.id);res.json(fullCourse(findCourse(previous.id,true),null,true));});
   app.delete('/api/admin/courses/:id',(req,res)=>{findCourse(req.params.id,true);run("UPDATE courses SET status='archived' WHERE id=?",req.params.id);res.json({ok:true,archived:true});});
-  function lessonInput(body,previous={}) {
+  async function lessonInput(body,previous={}) {
     const title=textValue(body.title??previous.title,200),duration=Number(body.duration??previous.duration??0),video=textValue(body.videoUrl??previous.videoUrl,2000);
     if(!title || !Number.isInteger(duration) || duration<1 || duration>86400) throw fail(400,'请填写课时名称和 1 到 86400 秒的时长');
-    if(video && !/^https:\/\//.test(video) && !/^upload:[a-z0-9-]+$/i.test(video) && !/^\/api\/media\/[a-z0-9-]+$/i.test(video)) throw fail(400,'视频地址须为 HTTPS 链接或已上传的视频');
+    if(video && !/^https:\/\//.test(video) && !/^upload:[a-z0-9-]+$/i.test(video) && !/^\/api\/media\/[a-z0-9-]+$/i.test(video) && !vodReference(video)) throw fail(400,'视频地址须为 HTTPS 链接、已上传的视频或已确认的云点播视频');
+    if(vodReference(video)) {
+      const media=await refreshVodMedia(ownedVodMedia(vodReference(video)),{force:true});
+      if(!media.ready)throw fail(409,media.status==='failed'?'云视频转码失败，请重新转码后保存课时':'云视频正在转码，完成后才可保存课时');
+    }
     const uploadId=video.startsWith('upload:')?video.slice(7):video.startsWith('/api/media/')?video.split('/').pop():null;
     if(uploadId && !get("SELECT 1 FROM uploads WHERE id=? AND kind='video'",uploadId)) throw fail(400,'上传的视频不存在');
     return {title,duration,preview:(body.isPreview??body.preview??body.freePreview??previous.preview)?1:0,videoUrl:video,sortOrder:Math.max(0,Math.floor(Number(body.sort??body.sortOrder??previous.sortOrder??0)||0))};
   }
-  app.post('/api/admin/courses/:id/lessons',(req,res)=>{const course=findCourse(req.params.id,true),data=lessonInput(req.body),id=randomUUID();run('INSERT INTO lessons VALUES(?,?,?,?,?,?,?)',id,course.id,...Object.values(data));res.status(201).json(lessonShape(get('SELECT * FROM lessons WHERE id=?',id),true));});
-  app.put('/api/admin/lessons/:id',(req,res)=>{const previous=get('SELECT * FROM lessons WHERE id=?',req.params.id);if(!previous) throw fail(404,'课时不存在');const data=lessonInput(req.body,previous);run(`UPDATE lessons SET ${Object.keys(data).map(k=>`${k}=?`).join(',')} WHERE id=?`,...Object.values(data),previous.id);res.json(lessonShape(get('SELECT * FROM lessons WHERE id=?',previous.id),true));});
+  app.post('/api/admin/courses/:id/lessons',asyncRoute(async(req,res)=>{const course=findCourse(req.params.id,true),data=await lessonInput(req.body),id=randomUUID();run('INSERT INTO lessons VALUES(?,?,?,?,?,?,?)',id,course.id,...Object.values(data));res.status(201).json(lessonShape(get('SELECT * FROM lessons WHERE id=?',id),true));}));
+  app.put('/api/admin/lessons/:id',asyncRoute(async(req,res)=>{const previous=get('SELECT * FROM lessons WHERE id=?',req.params.id);if(!previous) throw fail(404,'课时不存在');const data=await lessonInput(req.body,previous);run(`UPDATE lessons SET ${Object.keys(data).map(k=>`${k}=?`).join(',')} WHERE id=?`,...Object.values(data),previous.id);res.json(lessonShape(get('SELECT * FROM lessons WHERE id=?',previous.id),true));}));
   app.delete('/api/admin/lessons/:id',(req,res)=>{run('DELETE FROM progress WHERE lessonId=?',req.params.id);run('DELETE FROM lessons WHERE id=?',req.params.id);res.json({ok:true});});
   const allowedExtensions=new Set(['.mp4','.webm','.mov','.pdf','.txt','.md','.doc','.docx','.xls','.xlsx','.ppt','.pptx','.jpg','.jpeg','.png','.webp']);
   const storage=multer.diskStorage({destination:(req,file,callback)=>callback(null,uploadsDir),filename:(req,file,callback)=>callback(null,`${randomUUID()}${extname(file.originalname).toLowerCase()}`)});

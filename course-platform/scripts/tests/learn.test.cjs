@@ -5,7 +5,7 @@ const vm=require('node:vm');
 const flush=()=>new Promise(setImmediate);
 
 function harness(){
-  const calls=[],downloads=[],removed=[];
+  const calls=[],downloads=[],removed=[],timers=new Map(),pauses=[];let timerId=0;
   const app={globalData:{token:'test-token'}};
   let definition;
   const request=(path,options)=>new Promise((resolve,reject)=>calls.push({path,options,resolve,reject,token:app.globalData.token}));
@@ -13,7 +13,8 @@ function harness(){
     Page:value=>{definition=value;},
     require:path=>path.endsWith('/api')?{request,absoluteUrl:value=>value,removeTempVideo:path=>removed.push(path),downloadVideo:(path,options)=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});const download={path,options,promise,resolve,reject,aborted:false,abort(){this.aborted=true;const error=new Error('cancelled');error.cancelled=true;reject(error);}};downloads.push(download);return download;}}:{course:value=>value,lesson:value=>value},
     getApp:()=>app,
-    wx:{createVideoContext:()=>({pause(){}}),setNavigationBarTitle(){}}
+    setTimeout:(callback,delay)=>{const id=++timerId;timers.set(id,{callback,delay});return id;},clearTimeout:id=>timers.delete(id),
+    wx:{createVideoContext:id=>({pause(){pauses.push(id);}}),setNavigationBarTitle(){}}
   });
   const page=Object.assign({},definition,{data:structuredClone(definition.data),updates:0,setData(value){this.updates++;Object.assign(this.data,value);}});
   const find=path=>calls.filter(call=>call.path===path);
@@ -26,7 +27,7 @@ function harness(){
     find('/lessons/a/play')[0].resolve({id:'a',url:'/a.mp4',title:'A',progress:0,...play});
     await flush();
   }
-  return {page,app,calls,find,event,progress,boot,downloads,removed};
+  return {page,app,calls,find,event,progress,boot,downloads,removed,timers,pauses};
 }
 
 test('old video events cannot change or complete a newly selected lesson',async()=>{
@@ -173,4 +174,57 @@ test('a protected video returned after an account change is discarded',async()=>
 test('cancelling a protected video transfer leaves a recoverable loading error',async()=>{
   const h=harness();await h.boot({}, {requiresAuthorizedDownload:true});h.page.cancelLoading();await flush();
   assert.equal(h.downloads[0].aborted,true);assert.equal(h.page.data.loading,false);assert.equal(h.page.data.downloading,false);assert.match(h.page.data.error,/已取消/);assert.equal(h.page.data.players.length,0);
+});
+
+const vodPlayback=(overrides={})=>({id:'a',title:'Cloud lesson',url:'https://video.example.cn/course/index.m3u8?t=123&sign=secret',playbackProvider:'tencent-vod',playbackAuth:'signed-url',requiresAuthorizedDownload:false,expiresAt:new Date(Date.now()+300000).toISOString(),...overrides});
+
+test('cloud HLS streams immediately from the signed CDN URL without a whole-file download',async()=>{
+  const h=harness();const playback=vodPlayback({requiresAuthorizedDownload:true});await h.boot({},playback);
+  assert.equal(h.downloads.length,0);assert.equal(h.page.data.players[0].url,playback.url);assert.equal(h.page.data.downloading,false);
+  assert.equal(h.timers.size,1);assert.ok([...h.timers.values()][0].delay>=238000);
+  h.page.onUnload();assert.equal(h.timers.size,0);
+});
+
+test('numeric backend expiries work and a short remaining login lifetime does not cause a refresh loop',async()=>{
+  const h=harness();await h.boot({},vodPlayback({expiresAt:Date.now()+30000}));
+  assert.equal(h.page.data.players.length,1);const delay=[...h.timers.values()][0].delay;assert.ok(delay>14000&&delay<=15000);h.page.onUnload();
+});
+
+for(const playing of [false,true])test('signed URL renewal preserves position and '+(playing?'active playback':'the paused state'),async()=>{
+  const h=harness();await h.boot({},vodPlayback());const previous=h.page._playback;
+  h.page.timeUpdate(h.event(previous.id,7));if(playing)h.page.play(h.event(previous.id));
+  const refreshing=h.page.refreshPlayback(previous);
+  h.page.timeUpdate(h.event(previous.id,9));
+  h.find('/lessons/a/play')[1].resolve(vodPlayback({url:'https://video.example.cn/course/index.m3u8?sign=renewed',progress:1}));await refreshing;
+  assert.notEqual(h.page._playback.id,previous.id);assert.equal(h.page.data.players[0].startTime,9);assert.equal(h.page.data.players[0].autoplay,playing);
+  assert.equal(h.find('/lessons/a/play')[1].options.header.Authorization,'Bearer test-token');assert.equal(h.downloads.length,0);
+  h.page.timeUpdate(h.event(previous.id,99));assert.equal(h.page._playback.progress.position,9);
+  h.page.onUnload();assert.equal(h.timers.size,0);
+});
+
+test('pausing while renewal is in flight prevents autoplay after the renewed URL arrives',async()=>{
+  const h=harness();await h.boot({},vodPlayback());const old=h.page._playback;h.page.play(h.event(old.id));
+  const renewal=h.page.refreshPlayback(old);h.page.pause(h.event(old.id));
+  h.find('/lessons/a/play')[1].resolve(vodPlayback());await renewal;
+  assert.equal(h.page.data.players[0].autoplay,false);
+});
+
+for(const action of ['unload','switch','logout','other-lesson'])test('an in-flight CDN renewal is ignored after '+action,async()=>{
+  const h=harness();await h.boot({},vodPlayback());const renewal=h.page.refreshPlayback(h.page._playback);
+  if(action==='unload')h.page.onUnload();else if(action==='switch')h.app.globalData.token='another-user';else if(action==='logout')h.app.globalData.token='';else h.page.openLesson('b');
+  const updates=h.page.updates;
+  h.find('/lessons/a/play')[1].resolve(vodPlayback({url:'https://video.example.cn/late-old-user.m3u8'}));await renewal;
+  assert.equal(h.page.updates,updates);assert.notEqual(h.page.data.players[0]?.url,'https://video.example.cn/late-old-user.m3u8');
+});
+
+test('a denied cloud renewal stops and removes the previously authorized video',async()=>{
+  const h=harness();await h.boot({},vodPlayback());const renewal=h.page.refreshPlayback(h.page._playback);
+  const denied=new Error('课程权限已失效');denied.status=403;h.find('/lessons/a/play')[1].reject(denied);await renewal;
+  assert.equal(h.page.data.players.length,0);assert.equal(h.page._playback,null);assert.equal(h.timers.size,0);assert.match(h.page.data.error,/权限/);
+});
+
+test('an unsigned or expired cloud URL is rejected before a video component is created',async()=>{
+  for(const overrides of [{playbackAuth:'session'},{url:'http://video.example.cn/course.mp4'},{expiresAt:new Date(Date.now()-1000).toISOString()}]){
+    const h=harness();await h.boot({},vodPlayback(overrides));assert.equal(h.page.data.players.length,0);assert.equal(h.downloads.length,0);assert.match(h.page.data.error,/凭证无效/);
+  }
 });

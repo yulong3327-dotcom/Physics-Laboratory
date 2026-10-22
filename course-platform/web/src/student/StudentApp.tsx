@@ -3,8 +3,9 @@ import { QRCodeSVG } from 'qrcode.react';
 import { ArrowDownToLine, ArrowLeft, ArrowRight, Bell, BookOpen, Bookmark, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, CircleHelp, Clock3, FileText, Flame, GraduationCap, Grid2X2, Headphones, LayoutDashboard, Loader2, LockKeyhole, LogOut, Menu, MessageCircle, Play, PlayCircle, Search, ShieldCheck, ShoppingBag, Smartphone, Sparkles, Target, UserRound, Users, Video, X } from 'lucide-react';
 import './student.css';
 import { api, downloadFile, useSession } from '../shared/api';
+import { createLessonStream } from './lesson-stream';
 
-type Lesson = { id: string; title: string; duration?: number | string; durationSeconds?: number; videoUrl?: string; resumeSeconds?: number; isFree?: boolean; free?: boolean; isPreview?: boolean; order?: number };
+type Lesson = { id: string; title: string; duration?: number | string; durationSeconds?: number; videoUrl?: string; resumeSeconds?: number; playbackProvider?: string; playbackAuth?: string; expiresAt?: string | number; contentType?: string; isFree?: boolean; free?: boolean; isPreview?: boolean; order?: number };
 type Material = { id: string; title?: string; name?: string; originalName?: string; fileName?: string; size?: number; fileSize?: number; filename?: string; url?: string; fileUrl?: string };
 type Course = { id: string; title: string; subtitle?: string; description?: string; subject?: string; grade?: string; teacher?: string; teacherName?: string; teacherTitle?: string; price: number; originalPrice?: number; cover?: string; coverUrl?: string; coverImage?: string; detailImages?: string[]; lessonCount?: number; students?: number; studentCount?: number; status?: string; lessons?: Lesson[]; materials?: Material[]; enrolled?: boolean; purchased?: boolean; progress?: number; progressPercent?: number; completedLessons?: number; color?: string; tags?: string[] };
 type User = { id: string; nickname?: string; name?: string; phone?: string; avatarUrl?: string };
@@ -14,11 +15,12 @@ type AppConfig = { demoMode: boolean; wechatConfigured: boolean; paymentConfigur
 
 const subjects = ['全部课程', '数学', '英语', '物理', '语文', '化学'];
 const palette = [ ['#f7ebdc', '#9a5c28'], ['#e0efec', '#36746a'], ['#eee9f9', '#766196'], ['#f3e4df', '#a56354'] ];
-async function request<T = any>(path: string, options: RequestInit = {}): Promise<T> {
+async function request<T = any>(path: string, options: RequestInit & { token?: string } = {}): Promise<T> {
   let body = options.body;
   if (typeof body === 'string') body = JSON.parse(body);
   return api(path, { ...options, body });
 }
+function storedSessionToken() { try { return JSON.parse(localStorage.getItem('zhike_session') || 'null')?.token || ''; } catch { return ''; } }
 
 function listOf<T>(data: any, key: string): T[] { return Array.isArray(data) ? data : data?.[key] || data?.data?.[key] || data?.data || []; }
 function displayPrice(value: number) { const amount = Number(value ?? 0); return Number.isFinite(amount) ? amount.toFixed(2).replace(/\.?0+$/, '') : '0'; }
@@ -83,7 +85,11 @@ export default function StudentApp() {
   const [paymentState, setPaymentState] = useState<'idle' | 'creating' | 'waiting' | 'cancelled' | 'error'>('idle');
   const [paymentError, setPaymentError] = useState('');
   const checkoutRun = useRef(0);
-  const [player, setPlayer] = useState<{ course: Course; lesson: Lesson } | null>(null);
+  const [player, setPlayer] = useState<{ course: Course; lesson: Lesson; token: string } | null>(null);
+  const playbackRun = useRef(0);
+  const sessionToken = useRef(token || '');
+  sessionToken.current = token || '';
+  const authActive = (value: string) => sessionToken.current === value && storedSessionToken() === value;
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [mobileNav, setMobileNav] = useState(false);
@@ -103,6 +109,7 @@ export default function StudentApp() {
   };
   useEffect(() => { void loadCourses(); request<AppConfig>('/config').then(result => { setConfig(result); setConfigLoaded(true); }).catch(() => setConfigLoadFailed(true)); }, []);
   useEffect(() => { void loadAccount(); }, [token]);
+  useEffect(() => { playbackRun.current++; setPlayer(null); }, [token]);
   useEffect(() => { if (!toast) return; const timeout = window.setTimeout(() => setToast(null), 3800); return () => window.clearTimeout(timeout); }, [toast]);
   useEffect(() => {
     if (!checkout || config.demoMode || virtualCheckout || paymentState !== 'waiting' || !pendingOrderId) return;
@@ -140,8 +147,9 @@ export default function StudentApp() {
   const mine: Course[] = [...enrollments.map(item => ({ ...courses.find(c => c.id === (item.courseId || item.id)), ...item, id: item.courseId || item.id })), ...courses.filter(course => (course.enrolled || course.purchased) && !enrollments.some(item => (item.courseId || item.id) === course.id))];
   const isOwned = (course: Course) => mine.some(item => item.id === course.id);
   const filtered = courses.filter(course => (subject === '全部课程' || subjectOf(course) === subject) && (!query || `${course.title} ${teacherOf(course)} ${course.description}`.toLowerCase().includes(query.toLowerCase())) && (grade === '全部年级' || (course.grade || course.title).includes(grade)));
-  const go = (next: Page) => { setPage(next); setSelected(null); setPlayer(null); setMobileNav(false); setQuery(''); };
+  const go = (next: Page) => { playbackRun.current++; setPage(next); setSelected(null); setPlayer(null); setMobileNav(false); setQuery(''); };
   const openCourse = async (course: Course) => {
+    playbackRun.current++;
     setSelected(course); setDetailTab('lessons'); window.scrollTo({ top: 0, behavior: 'smooth' });
     try { const data = await request(`/courses/${course.id}`); const detail = data.course || data.data?.course || data; setSelected({ ...course, ...detail }); }
     catch (e) { tell((e as Error).message, 'error'); }
@@ -263,8 +271,12 @@ export default function StudentApp() {
   const buy = (course: Course) => { if (virtualCheckout) { beginCheckout(course); return; } if (!user) { setLoginOpen(true); return; } beginCheckout(course); };
   const playLesson = async (course: Course, lesson: Lesson) => {
     if (!isOwned(course) && !lesson.isPreview && !lesson.isFree && !lesson.free) { buy(course); return; }
-    try { const data = await request(`/lessons/${lesson.id}/play`); setPlayer({ course, lesson: { ...lesson, videoUrl: data.url, resumeSeconds: Number(data.progress) || 0 } }); }
-    catch (e) { tell((e as Error).message, 'error'); }
+    const run = ++playbackRun.current, authToken = token || '';
+    try {
+      const data = await request(`/lessons/${encodeURIComponent(lesson.id)}/play`, { token: authToken });
+      if (run !== playbackRun.current || !authActive(authToken)) return;
+      setPlayer({ course, token: authToken, lesson: { ...lesson, ...data, videoUrl: data.videoUrl || data.url, resumeSeconds: Number(data.progress) || 0 } });
+    } catch (e) { if (run === playbackRun.current && authActive(authToken)) tell((e as Error).message, 'error'); }
   };
   const download = async (course: Course, material: Material) => {
     if (!user) { setLoginOpen(true); return; }
@@ -272,12 +284,15 @@ export default function StudentApp() {
     try { await downloadFile(material.id, material.fileName || material.originalName || material.name || material.title || '课程讲义'); tell('讲义下载已开始'); }
     catch (e) { tell((e as Error).message, 'error'); }
   };
-  const completeLesson = async () => {
-    if (!player || !user || !isOwned(player.course)) return;
-    try { await request(`/lessons/${player.lesson.id}/progress`, { method: 'POST', body: JSON.stringify({ seconds: Number(player.lesson.duration) || 0, completed: true }) }); tell('本节学习已完成，继续保持！'); await loadAccount(); }
-    catch (e) { tell((e as Error).message, 'error'); }
+  const completeLesson = async (seconds?: number) => {
+    if (!player || !user || !isOwned(player.course) || !authActive(player.token)) return;
+    try {
+      await request(`/lessons/${encodeURIComponent(player.lesson.id)}/progress`, { token: player.token, method: 'POST', body: JSON.stringify({ seconds: seconds ?? (Number(player.lesson.durationSeconds || player.lesson.duration) || 0), completed: true }) });
+      if (!authActive(player.token)) return;
+      tell('本节学习已完成，继续保持！'); await loadAccount();
+    } catch (e) { if (authActive(player.token)) tell((e as Error).message, 'error'); }
   };
-  const logout = async () => { try { await request('/auth/logout', { method: 'POST', body: JSON.stringify({}) }); } catch {} finally { sessionLogout(); setEnrollments([]); setOrders([]); setCourses(items => items.map(course => ({ ...course, enrolled: false, purchased: false }))); go('discover'); void loadCourses(); tell('已退出登录'); } };
+  const logout = async () => { playbackRun.current++; setPlayer(null); try { await request('/auth/logout', { method: 'POST', body: JSON.stringify({}) }); } catch {} finally { sessionLogout(); setEnrollments([]); setOrders([]); setCourses(items => items.map(course => ({ ...course, enrolled: false, purchased: false }))); go('discover'); void loadCourses(); tell('已退出登录'); } };
 
   return <div className="student-app">
     <aside className={`student-sidebar ${mobileNav ? 'mobile-open' : ''}`}>
@@ -293,7 +308,7 @@ export default function StudentApp() {
     <div className="student-body">
       <header className="student-header"><div className="header-left"><button className="mobile-menu icon-button" onClick={() => setMobileNav(true)} aria-label="打开导航"><Menu size={22} /></button><span className="header-context">学习空间 <ChevronRight size={14} /> <b>{selected ? '课程详情' : page === 'discover' ? '发现好课' : page === 'courses' ? '我的课程' : page === 'materials' ? '学习资料' : page === 'orders' ? '我的订单' : '个人中心'}</b></span></div><div className="header-actions"><label className="header-search"><Search size={17} /><input placeholder="搜索课程、老师" value={query} onChange={e => { setQuery(e.target.value); if (selected) setSelected(null); if (page !== 'discover') setPage('discover'); }} /><span>⌘ K</span></label><button className="icon-button notification-button" aria-label="消息通知" onClick={() => tell('你已读完全部消息')}><Bell size={19} /><i /></button><span className="header-divider" /><button className="account-button" onClick={() => user ? go('profile') : setLoginOpen(true)}><span className="account-avatar"><UserRound size={18} /></span><span>{user?.nickname || user?.name || '登录 / 注册'}</span><ChevronDown size={13} /></button></div></header>
       <main className="student-main">
-        {player ? <div className="player-page"><button className="back-link" onClick={() => setPlayer(null)}><ArrowLeft size={17} />返回课程</button><div className="page-heading"><div><p className="eyebrow">LEARNING IN PROGRESS</p><h1>{player.course.title}</h1></div><span className="subtle-label"><ShieldCheck size={15} /> 专属学习空间</span></div><div className="player-layout"><div><div className="video-shell">{player.lesson.videoUrl ? <LearningVideo key={player.lesson.id} lesson={player.lesson} owned={Boolean(user && isOwned(player.course))} onComplete={completeLesson} /> : <div className="video-empty"><PlayCircle size={62} strokeWidth={1.1} /><h3>{player.lesson.title}</h3><p>该课时的视频正在准备中，请稍后再来学习。</p></div>}</div><div className="player-lesson-info"><div><span className="eyebrow">正在学习</span><h2>{player.lesson.title}</h2></div><button className="button primary small" onClick={completeLesson}><CheckCircle2 size={17} /> 标记学完</button></div><>{config.demoMode && <div className="demo-video-note"><CircleHelp size={14} />演示视频，课程内容可由管理员上传。</div>}</><div className="learning-tip"><Sparkles size={19} /><div><b>专注当下，每一课都有收获</b><p>建议准备好纸笔，跟随老师的思路，及时记录你的理解。</p></div></div></div><aside className="player-playlist"><div className="panel-title"><h3>课程目录</h3><span>{player.course.lessons?.length || 0} 课时</span></div>{player.course.lessons?.map((lesson, i) => <button className={`playlist-item ${lesson.id === player.lesson.id ? 'active' : ''}`} key={lesson.id} onClick={() => playLesson(player.course, lesson)}><span>{lesson.id === player.lesson.id ? <Play size={15} fill="currentColor" /> : String(i + 1).padStart(2, '0')}</span><div><b>{lesson.title}</b><small>{durationOf(lesson)}</small></div></button>)}</aside></div></div> : selected ? <div className="detail-page"><button className="back-link" onClick={() => setSelected(null)}><ArrowLeft size={17} />返回{page === 'courses' ? '我的课程' : '课程列表'}</button><div className="course-detail-hero"><CourseCover course={selected} /><div className="detail-heading"><div className="tag-row"><span className="subject-tag">{selected.grade || '高中'} · {subjectOf(selected)}</span><span className="outline-tag">系统提升</span></div><h1>{selected.title}</h1><p>{selected.subtitle || '从理解到掌握，让每一次学习都有清晰的方向。'}</p><div className="detail-teacher"><TeacherAvatar name={teacherOf(selected)} size="large" /><div><b>{teacherOf(selected)}</b><span>{selected.teacherTitle || '知课学科主讲老师'}</span></div></div><div className="detail-meta"><span><Video size={15} /> {selected.lessons?.length || selected.lessonCount || 0} 个课时</span><span><Users size={15} /> {selected.studentCount ?? selected.students ?? 0} 人已加入</span><span><ShieldCheck size={15} /> 随时回看</span></div></div></div><div className="detail-body"><section className="detail-content"><div className="detail-tabs">{([{ id: 'intro', label: '课程介绍' }, { id: 'lessons', label: '课程目录' }, { id: 'materials', label: '课程资料' }] as const).map(tab => <button key={tab.id} className={detailTab === tab.id ? 'active' : ''} onClick={() => setDetailTab(tab.id)}>{tab.label}{tab.id === 'lessons' && <span>{selected.lessons?.length || 0}</span>}</button>)}</div>{detailTab === 'intro' ? <div className="course-intro"><h3>让知识真正成为你的能力</h3><p>{selected.description || '围绕学科核心知识，梳理重点、突破难点。通过系统讲解与典型例题，帮助你建立完整的知识体系，找到适合自己的学习方法。'}</p><CourseDetailImages key={selected.id} course={selected} /><div className="intro-features"><div><Target size={23} /><b>明确学习目标</b><p>循序渐进，抓住核心知识</p></div><div><BookOpen size={23} /><b>配套精选讲义</b><p>课堂笔记，课后巩固</p></div><div><PlayCircle size={23} /><b>灵活安排学习</b><p>随时回放，掌握自己的节奏</p></div></div><h3>适合谁学</h3><p>希望系统梳理知识、提升学习能力的{selected.grade || '高中'}同学。</p></div> : detailTab === 'lessons' ? <div className="lesson-list"><div className="lesson-intro"><Bookmark size={17} /><div><strong>课前准备</strong><p>准备好笔记本与课程讲义，开始新的收获。</p></div><ChevronRight size={18} /></div>{selected.lessons?.length ? selected.lessons.map((lesson, index) => <button className="lesson-item" key={lesson.id} onClick={() => playLesson(selected, lesson)}><span className="lesson-index">{String(index + 1).padStart(2, '0')}</span><div><strong>{lesson.title}</strong><span><PlayCircle size={13} /> 视频 · {durationOf(lesson)}{(lesson.isPreview || lesson.isFree || lesson.free) && <i>免费试看</i>}</span></div>{isOwned(selected) || lesson.isPreview || lesson.isFree || lesson.free ? <PlayCircle size={21} /> : <LockKeyhole size={18} />}</button>) : <EmptyState icon={Video} title="课程内容正在准备中" description="老师正在认真打磨课程，敬请期待。" />}</div> : <div className="material-list">{selected.materials?.length ? selected.materials.map(material => <MaterialRow key={material.id} material={material} onDownload={() => download(selected, material)} />) : <EmptyState icon={FileText} title="暂无课程资料" description="老师上传讲义后，你可以在这里查看和下载。" />}</div>}</section><aside className="purchase-card"><div className="purchase-top"><span>{isOwned(selected) ? '已加入学习计划' : '把好课加入你的学习计划'}</span>{isOwned(selected) ? <h2><CheckCircle2 size={24} /> 已解锁课程</h2> : <><div className="purchase-price"><small>¥</small>{displayPrice(selected.price)}{!!selected.originalPrice && <del>¥{displayPrice(selected.originalPrice)}</del>}</div><p>一次购买，在有效期内反复学习</p></>}</div><div className="purchase-benefits"><span><Check size={16} /> 完整课程，随时回放</span><span><Check size={16} /> 配套讲义，便捷下载</span><span><Check size={16} /> 学习进度，自动保存</span></div><button className="button primary" onClick={() => { if (isOwned(selected)) { const lesson = selected.lessons?.[0]; if (lesson) playLesson(selected, lesson); else tell('课程内容正在准备中'); } else buy(selected); }}>{isOwned(selected) ? <><Play size={16} fill="currentColor" /> 开始学习</> : <>立即选课 <ArrowRight size={17} /></>}</button><div className="secure-note"><ShieldCheck size={13} /> 安全支付 · 专属学习权益</div></aside></div></div> : <>
+        {player ? <div className="player-page"><button className="back-link" onClick={() => { playbackRun.current++; setPlayer(null); }}><ArrowLeft size={17} />返回课程</button><div className="page-heading"><div><p className="eyebrow">LEARNING IN PROGRESS</p><h1>{player.course.title}</h1></div><span className="subtle-label"><ShieldCheck size={15} /> 专属学习空间</span></div><div className="player-layout"><div><div className="video-shell">{player.lesson.videoUrl ? <LearningVideo key={`${player.lesson.id}:${player.token}`} token={player.token} lesson={player.lesson} owned={Boolean(user && isOwned(player.course))} onComplete={completeLesson} /> : <div className="video-empty"><PlayCircle size={62} strokeWidth={1.1} /><h3>{player.lesson.title}</h3><p>该课时的视频正在准备中，请稍后再来学习。</p></div>}</div><div className="player-lesson-info"><div><span className="eyebrow">正在学习</span><h2>{player.lesson.title}</h2></div><button className="button primary small" onClick={() => completeLesson()}><CheckCircle2 size={17} /> 标记学完</button></div><>{config.demoMode && <div className="demo-video-note"><CircleHelp size={14} />演示视频，课程内容可由管理员上传。</div>}</><div className="learning-tip"><Sparkles size={19} /><div><b>专注当下，每一课都有收获</b><p>建议准备好纸笔，跟随老师的思路，及时记录你的理解。</p></div></div></div><aside className="player-playlist"><div className="panel-title"><h3>课程目录</h3><span>{player.course.lessons?.length || 0} 课时</span></div>{player.course.lessons?.map((lesson, i) => <button className={`playlist-item ${lesson.id === player.lesson.id ? 'active' : ''}`} key={lesson.id} onClick={() => playLesson(player.course, lesson)}><span>{lesson.id === player.lesson.id ? <Play size={15} fill="currentColor" /> : String(i + 1).padStart(2, '0')}</span><div><b>{lesson.title}</b><small>{durationOf(lesson)}</small></div></button>)}</aside></div></div> : selected ? <div className="detail-page"><button className="back-link" onClick={() => setSelected(null)}><ArrowLeft size={17} />返回{page === 'courses' ? '我的课程' : '课程列表'}</button><div className="course-detail-hero"><CourseCover course={selected} /><div className="detail-heading"><div className="tag-row"><span className="subject-tag">{selected.grade || '高中'} · {subjectOf(selected)}</span><span className="outline-tag">系统提升</span></div><h1>{selected.title}</h1><p>{selected.subtitle || '从理解到掌握，让每一次学习都有清晰的方向。'}</p><div className="detail-teacher"><TeacherAvatar name={teacherOf(selected)} size="large" /><div><b>{teacherOf(selected)}</b><span>{selected.teacherTitle || '知课学科主讲老师'}</span></div></div><div className="detail-meta"><span><Video size={15} /> {selected.lessons?.length || selected.lessonCount || 0} 个课时</span><span><Users size={15} /> {selected.studentCount ?? selected.students ?? 0} 人已加入</span><span><ShieldCheck size={15} /> 随时回看</span></div></div></div><div className="detail-body"><section className="detail-content"><div className="detail-tabs">{([{ id: 'intro', label: '课程介绍' }, { id: 'lessons', label: '课程目录' }, { id: 'materials', label: '课程资料' }] as const).map(tab => <button key={tab.id} className={detailTab === tab.id ? 'active' : ''} onClick={() => setDetailTab(tab.id)}>{tab.label}{tab.id === 'lessons' && <span>{selected.lessons?.length || 0}</span>}</button>)}</div>{detailTab === 'intro' ? <div className="course-intro"><h3>让知识真正成为你的能力</h3><p>{selected.description || '围绕学科核心知识，梳理重点、突破难点。通过系统讲解与典型例题，帮助你建立完整的知识体系，找到适合自己的学习方法。'}</p><CourseDetailImages key={selected.id} course={selected} /><div className="intro-features"><div><Target size={23} /><b>明确学习目标</b><p>循序渐进，抓住核心知识</p></div><div><BookOpen size={23} /><b>配套精选讲义</b><p>课堂笔记，课后巩固</p></div><div><PlayCircle size={23} /><b>灵活安排学习</b><p>随时回放，掌握自己的节奏</p></div></div><h3>适合谁学</h3><p>希望系统梳理知识、提升学习能力的{selected.grade || '高中'}同学。</p></div> : detailTab === 'lessons' ? <div className="lesson-list"><div className="lesson-intro"><Bookmark size={17} /><div><strong>课前准备</strong><p>准备好笔记本与课程讲义，开始新的收获。</p></div><ChevronRight size={18} /></div>{selected.lessons?.length ? selected.lessons.map((lesson, index) => <button className="lesson-item" key={lesson.id} onClick={() => playLesson(selected, lesson)}><span className="lesson-index">{String(index + 1).padStart(2, '0')}</span><div><strong>{lesson.title}</strong><span><PlayCircle size={13} /> 视频 · {durationOf(lesson)}{(lesson.isPreview || lesson.isFree || lesson.free) && <i>免费试看</i>}</span></div>{isOwned(selected) || lesson.isPreview || lesson.isFree || lesson.free ? <PlayCircle size={21} /> : <LockKeyhole size={18} />}</button>) : <EmptyState icon={Video} title="课程内容正在准备中" description="老师正在认真打磨课程，敬请期待。" />}</div> : <div className="material-list">{selected.materials?.length ? selected.materials.map(material => <MaterialRow key={material.id} material={material} onDownload={() => download(selected, material)} />) : <EmptyState icon={FileText} title="暂无课程资料" description="老师上传讲义后，你可以在这里查看和下载。" />}</div>}</section><aside className="purchase-card"><div className="purchase-top"><span>{isOwned(selected) ? '已加入学习计划' : '把好课加入你的学习计划'}</span>{isOwned(selected) ? <h2><CheckCircle2 size={24} /> 已解锁课程</h2> : <><div className="purchase-price"><small>¥</small>{displayPrice(selected.price)}{!!selected.originalPrice && <del>¥{displayPrice(selected.originalPrice)}</del>}</div><p>一次购买，在有效期内反复学习</p></>}</div><div className="purchase-benefits"><span><Check size={16} /> 完整课程，随时回放</span><span><Check size={16} /> 配套讲义，便捷下载</span><span><Check size={16} /> 学习进度，自动保存</span></div><button className="button primary" onClick={() => { if (isOwned(selected)) { const lesson = selected.lessons?.[0]; if (lesson) playLesson(selected, lesson); else tell('课程内容正在准备中'); } else buy(selected); }}>{isOwned(selected) ? <><Play size={16} fill="currentColor" /> 开始学习</> : <>立即选课 <ArrowRight size={17} /></>}</button><div className="secure-note"><ShieldCheck size={13} /> 安全支付 · 专属学习权益</div></aside></div></div> : <>
           {page === 'discover' && <>
             <div className="welcome-heading"><div><p className="eyebrow">A LITTLE PROGRESS, EVERY DAY</p><h1>发现好课<span>，遇见更好的自己</span></h1></div><span className="today-note"><CalendarDays size={16} /> 今天也要有所收获</span></div>
             <label className="mobile-course-search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索感兴趣的课程或老师" />{query && <button aria-label="清空搜索" onClick={() => setQuery('')}><X size={15} /></button>}</label>
@@ -316,18 +331,41 @@ export default function StudentApp() {
   </div>;
 }
 
-function LearningVideo({ lesson, owned, onComplete }: { lesson: Lesson; owned: boolean; onComplete: () => Promise<void> }) {
+function LearningVideo({ lesson, owned, token, onComplete }: { lesson: Lesson; owned: boolean; token: string; onComplete: (seconds?: number) => Promise<void> }) {
   const video = useRef<HTMLVideoElement | null>(null);
   const seconds = useRef(lesson.resumeSeconds || 0);
   const lastSaved = useRef(lesson.resumeSeconds || 0);
   const completed = useRef(false);
+  const saveQueue = useRef(Promise.resolve());
+  const lastQueued = useRef<{ seconds: number; completed: boolean; failed?: boolean } | null>(null);
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
   const save = (isCompleted = false) => {
-    if (!owned || seconds.current < 1) return;
-    lastSaved.current = seconds.current;
-    void request(`/lessons/${lesson.id}/progress`, { method: 'POST', body: JSON.stringify({ seconds: Math.floor(seconds.current), completed: isCompleted || completed.current }), keepalive: true }).catch(() => {});
+    if (!owned || !token || storedSessionToken() !== token || seconds.current < 1) return;
+    const snapshot = { seconds: Math.floor(seconds.current), completed: isCompleted || completed.current, failed: false };
+    if (lastQueued.current && !lastQueued.current.failed && lastQueued.current.seconds === snapshot.seconds && lastQueued.current.completed === snapshot.completed) return;
+    lastQueued.current = snapshot;
+    saveQueue.current = saveQueue.current.then(async () => {
+      if (storedSessionToken() !== token) return;
+      await request(`/lessons/${encodeURIComponent(lesson.id)}/progress`, { token, method: 'POST', body: JSON.stringify({ seconds: snapshot.seconds, completed: snapshot.completed }), keepalive: true });
+      if (storedSessionToken() === token) lastSaved.current = snapshot.seconds;
+    }).catch(() => { snapshot.failed = true; });
   };
   useEffect(() => { const handleExit = () => save(); window.addEventListener('pagehide', handleExit); return () => { save(); window.removeEventListener('pagehide', handleExit); }; }, [lesson.id, owned]);
-  return <video ref={video} key={lesson.id} controls autoPlay controlsList="nodownload" src={lesson.videoUrl} onLoadedMetadata={e => { const resume = lesson.resumeSeconds || 0; if (resume > 0 && resume < e.currentTarget.duration - 1) e.currentTarget.currentTime = resume; }} onTimeUpdate={e => { seconds.current = e.currentTarget.currentTime; if (owned && Math.abs(seconds.current - lastSaved.current) >= 15) save(); }} onPause={() => save()} onEnded={() => { completed.current = true; if (owned) void onComplete(); }} />;
+  useEffect(() => {
+    if (!video.current) return;
+    let active = true;
+    setError('');
+    const transport = createLessonStream({
+      video: video.current, playback: { ...lesson, resumeSeconds: seconds.current },
+      refreshOnStart: attempt > 0,
+      isActive: () => active && storedSessionToken() === token,
+      authorize: () => request(`/lessons/${encodeURIComponent(lesson.id)}/play`, { token }),
+      onError: (failure: Error) => { if (active && storedSessionToken() === token) setError(failure.message || '视频加载失败，请重新获取视频'); }
+    });
+    return () => { save(); active = false; transport.destroy(); };
+  }, [lesson.id, lesson.videoUrl, token, attempt]);
+  return <div className="learning-video"><video ref={video} controls controlsList="nodownload" onTimeUpdate={e => { if (storedSessionToken() !== token) return; seconds.current = e.currentTarget.currentTime; if (owned && Math.abs(seconds.current - lastSaved.current) >= 15) save(); }} onPause={() => save()} onError={() => setError('视频加载失败，请检查网络后重新获取视频')} onEnded={e => { if (storedSessionToken() !== token) return; seconds.current = e.currentTarget.currentTime; completed.current = true; if (owned) void onComplete(seconds.current); }} />{error && <div className="learning-video-error" role="alert"><CircleHelp size={27} /><p>{error}</p><button type="button" className="button secondary small" onClick={() => setAttempt(value => value + 1)}>重新获取视频</button></div>}</div>;
 }
 
 function CourseCard({ course, owned, onClick }: { course: Course; owned: boolean; onClick: () => void }) { return <article className="course-card" onClick={onClick} tabIndex={0} role="button" onKeyDown={e => { if (e.key === 'Enter') onClick(); }}><CourseCover course={course} /><div className="course-card-body"><div className="course-card-tags"><span>{course.grade || '高中'}</span><i /><span>{course.lessonCount || course.lessons?.length || 0} 课时</span><span className="card-students">{course.studentCount ?? course.students ?? 0} 人在学</span></div><h3>{course.title}</h3><p className="course-card-description">{course.subtitle || course.description || '建立知识体系，找到适合自己的学习方法'}</p><div className="course-teacher"><TeacherAvatar name={teacherOf(course)} /><span>{teacherOf(course)}</span><span className="teacher-label">主讲老师</span></div><div className="course-card-bottom"><div className="course-price">{owned ? <span className="owned-label">已加入学习</span> : <><small>¥</small>{displayPrice(course.price)}{!!course.originalPrice && <del>¥{displayPrice(course.originalPrice)}</del>}</>}</div><button tabIndex={-1} aria-label={`查看${course.title}`}><ArrowUpRightIcon /></button></div></div></article>; }

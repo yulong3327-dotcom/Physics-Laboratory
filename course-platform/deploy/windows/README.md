@@ -38,6 +38,8 @@
 
 常驻服务和每日备份可使用本目录已提供的 `Install-Service.ps1`、`Backup-Service.ps1`、`Register-Backup.ps1`，具体安装、验收和恢复步骤见 [SERVICES.md](./SERVICES.md)。脚本不替换宝塔已有代理。
 
+大视频使用云点播直传与 CDN 分发，配置与最小权限策略见 [VOD.md](./VOD.md)。新增点播依赖后，更新既有服务需要同步更新生产 npm 依赖，仅替换后端 JS 和网页文件不足以完成升级。
+
 ## 4. HTTPS 验收后配置微信
 
 - 健康检查：`https://course.yulongchemistry.cn/api/health`

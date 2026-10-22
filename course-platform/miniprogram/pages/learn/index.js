@@ -12,6 +12,7 @@ Page({
   onHide(){this._refreshOnShow=true;this._requestId++;this.cancelDownload();this.stopPlayback();this.setData({players:[],downloading:false});},
   onUnload(){this.stopPlayback();this._disposed=true;this._requestId++;this.cancelDownload();},
   stopPlayback(){
+    this.clearPlaybackRefresh();
     const playback=this._playback;
     if(!playback)return;
     this.saveProgress(false,playback);
@@ -52,16 +53,21 @@ Page({
       if(this._disposed||requestId!==this._requestId||!this.authActive(authToken,authVersion))return;
       const videoUrl=lesson.videoUrl||lesson.url;
       if(!videoUrl)throw new Error('老师尚未上传本课时视频，请稍后再来');
-      const prepare=lesson.requiresAuthorizedDownload?this.prepareProtectedVideo(videoUrl,requestId,authToken,authVersion):Promise.resolve({url:absoluteUrl(videoUrl),tempFilePath:''});
+      // A VOD URL is a short-lived CDN credential. Stream it directly; never
+      // download an entire cloud lesson or send our login token to the CDN.
+      const isVod=lesson.playbackProvider==='tencent-vod';
+      if(isVod)this.validateVodPlayback(lesson);
+      const prepare=!isVod&&lesson.requiresAuthorizedDownload?this.prepareProtectedVideo(videoUrl,requestId,authToken,authVersion):Promise.resolve({url:absoluteUrl(videoUrl),tempFilePath:''});
       return prepare.then(video=>{
       if(!video)return;
       if(this._disposed||requestId!==this._requestId||!this.authActive(authToken,authVersion)){if(video.tempFilePath&&removeTempVideo)removeTempVideo(video.tempFilePath);return;}
       const index=this.data.lessons.findIndex(l=>l.id===id);
       // Keep the latest local position while a previous save is still in flight.
       const progress=this._progress[id]||(this._progress[id]={position:Number(lesson.progress)||0,completed:false,savedPosition:Number(lesson.progress)||0,lastSave:null});
-      const playback={id:++this._sessionId,lessonId:id,progress,authToken,authVersion,tempFilePath:video.tempFilePath};
+      const playback={id:++this._sessionId,lessonId:id,progress,authToken,authVersion,tempFilePath:video.tempFilePath,isVod,playing:false,expiresAt:lesson.expiresAt};
       this._playback=playback;
-      this.setData({lesson,players:[{id:playback.id,url:video.url,startTime:progress.position,title:lesson.title}],demoVideo:!!lesson.demoVideo,isPreview:!this.data.course.enrolled,loading:false,downloading:false,error:'',videoError:false,savedText:this._canSave?'学习进度自动保存':'当前为课程试看',nextLesson:this.data.lessons[index+1]||null});
+      this.setData({lesson,players:[{id:playback.id,url:video.url,startTime:progress.position,title:lesson.title,autoplay:false}],demoVideo:!!lesson.demoVideo,isPreview:!this.data.course.enrolled,loading:false,downloading:false,error:'',videoError:false,savedText:this._canSave?'学习进度自动保存':'当前为课程试看',nextLesson:this.data.lessons[index+1]||null});
+      this.schedulePlaybackRefresh(playback);
       wx.setNavigationBarTitle({title:lesson.title});
       });
     }).catch(e=>{if(!this._disposed&&requestId===this._requestId&&this.authActive(authToken,authVersion))this.setData({loading:false,downloading:false,error:e.message});});
@@ -73,6 +79,44 @@ Page({
     }});
     this._download=download;
     return download.promise.then(path=>({url:path,tempFilePath:path})).finally(()=>{if(this._download===download)this._download=null;});
+  },
+  validateVodPlayback(lesson){
+    if(lesson.playbackAuth!=='signed-url'||!/^https:\/\//i.test(lesson.videoUrl||lesson.url||'')||!Number.isFinite(this.playbackExpiry(lesson.expiresAt))||this.playbackExpiry(lesson.expiresAt)<=Date.now())throw new Error('视频播放凭证无效，请重新获取课程');
+  },
+  playbackExpiry(value){return typeof value==='number'?value:Date.parse(value);},
+  clearPlaybackRefresh(){if(this._refreshTimer){clearTimeout(this._refreshTimer);this._refreshTimer=null;}},
+  schedulePlaybackRefresh(playback,retryDelay){
+    this.clearPlaybackRefresh();
+    if(!playback||!playback.isVod||this._disposed||this._playback!==playback)return;
+    const remaining=this.playbackExpiry(playback.expiresAt)-Date.now();
+    const delay=retryDelay===undefined?Math.max(1000,remaining-Math.min(60000,remaining/2)):retryDelay;
+    this._refreshTimer=setTimeout(()=>{this._refreshTimer=null;this.refreshPlayback(playback);},Math.min(delay,2147483647));
+  },
+  refreshPlayback(playback){
+    if(this._disposed||this._playback!==playback||!this.authActive(playback.authToken,playback.authVersion))return Promise.resolve();
+    if(playback.refreshing)return playback.refreshing;
+    const requestId=this._requestId;
+    const current=()=>!this._disposed&&this._playback===playback&&requestId===this._requestId&&this.authActive(playback.authToken,playback.authVersion);
+    playback.refreshing=request('/lessons/'+encodeURIComponent(playback.lessonId)+'/play',{header:playback.authToken?{Authorization:'Bearer '+playback.authToken}:{}}).then(lesson=>{
+      if(!current())return;
+      if(lesson.playbackProvider!=='tencent-vod')throw new Error('视频服务已变更，请重新打开课程');
+      this.validateVodPlayback(lesson);
+      const refreshed=Object.assign({},playback,{id:++this._sessionId,expiresAt:lesson.expiresAt,refreshing:null});
+      this._playback=refreshed;
+      wx.createVideoContext('lesson-video-'+playback.id,this).pause();
+      this.setData({lesson,players:[{id:refreshed.id,url:lesson.videoUrl||lesson.url,startTime:playback.progress.position,title:lesson.title,autoplay:!!playback.playing}],videoError:false});
+      this.schedulePlaybackRefresh(refreshed);
+    }).catch(error=>{
+      if(this._disposed||this._playback!==playback||requestId!==this._requestId)return;
+      if(!this.authActive(playback.authToken,playback.authVersion)||error.status===401||error.status===403){
+        this.stopPlayback();this.setData({players:[],error:error.status===403?'当前账号暂无课程观看权限，请重新选课':'登录身份已变化，请重新打开课程'});return;
+      }
+      if(this.playbackExpiry(playback.expiresAt)<=Date.now()){
+        playback.playing=false;wx.createVideoContext('lesson-video-'+playback.id,this).pause();this.setData({videoError:true});return;
+      }
+      this.schedulePlaybackRefresh(playback,Math.max(1000,Math.min(10000,this.playbackExpiry(playback.expiresAt)-Date.now())));
+    }).finally(()=>{playback.refreshing=null;});
+    return playback.refreshing;
   },
   chooseLesson(e){const id=e.currentTarget.dataset.id;if(id===this._lessonId)return;const target=this.data.lessons.find(l=>l.id===id);if(!target)return;if(!this.data.course.canWatch&&!target.isPreview){this.buy();return;}return this.openLesson(id);},
   eventPlayback(e){
@@ -86,9 +130,11 @@ Page({
     const lastPosition=progress.lastSave&&progress.lastSave.status!=='failed'&&progress.lastSave.status!=='skipped'?progress.lastSave.position:progress.savedPosition;
     if(Math.abs(position-lastPosition)>=10)this.saveProgress(false,playback);
   },
-  pause(e){const playback=this.eventPlayback(e);if(playback)this.saveProgress(false,playback);},
+  play(e){const playback=this.eventPlayback(e);if(playback)playback.playing=true;},
+  pause(e){const playback=this.eventPlayback(e);if(playback){playback.playing=false;this.saveProgress(false,playback);}},
   ended(e){
     const playback=this.eventPlayback(e);if(!playback)return;
+    playback.playing=false;
     playback.progress.completed=true;
     this.saveProgress(true,playback);
     this.setData({savedText:this._canSave?'本课时已学完，正在同步…':'本次试看已结束'});

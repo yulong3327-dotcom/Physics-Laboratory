@@ -3,7 +3,22 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24.0.0" },
-  "scripts": { "start": "node index.js", "dev": "node --watch index.js", "test": "node --test --test-concurrency=1 *.test.js" },
-  "dependencies": { "bcryptjs": "^3.0.2", "dotenv": "^17.2.3", "express": "^5.1.0", "express-rate-limit": "^8.2.1", "helmet": "^8.1.0", "multer": "^2.0.2", "tencentcloud-sdk-nodejs-sms": "^4.1.306" }
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "node --test --test-concurrency=1 *.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "multer": "^2.0.2",
+    "tencentcloud-sdk-nodejs-sms": "^4.1.306",
+    "tencentcloud-sdk-nodejs-vod": "^4.1.329"
+  }
 }
