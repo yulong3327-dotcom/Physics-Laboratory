@@ -67,7 +67,7 @@ function AboutYulong({ onCourses }: { onCourses: () => void }) {
 }
 
 function MiniProgramPurchaseGuide({ course, onClose }: { course: Course; onClose: () => void }) {
-  return <div className="mini-purchase-guide"><div className="mini-purchase-heading"><Smartphone size={25} /><div><b>玉龙AI优课</b><span>微信小程序</span></div></div><ol><li>打开微信，下拉进入「小程序」。</li><li>搜索「玉龙AI优课」，使用微信登录。</li><li>找到「{course.title}」，在小程序内完成购买。</li></ol><p>购买后，同一学习账号仍可在网页端「我的课程」继续学习和下载讲义。</p><button type="button" className="button primary" onClick={onClose}>我知道了 <CheckCircle2 size={17} /></button></div>;
+  return <div className="mini-purchase-guide"><div className="mini-purchase-heading"><Smartphone size={25} /><div><b>玉龙AI优课</b><span>微信小程序</span></div></div><ol><li>打开微信，扫描老师提供的课程小程序码。</li><li>进入课程小程序，使用微信账号登录。</li><li>找到「{course.title}」，在小程序内完成购买。</li></ol><p>购买后，同一学习账号仍可在网页端「我的课程」继续学习和下载讲义。</p><button type="button" className="button primary" onClick={onClose}>我知道了 <CheckCircle2 size={17} /></button></div>;
 }
 
 export default function StudentApp() {
