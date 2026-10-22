@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createApp } from './app.js';
@@ -28,6 +28,24 @@ function insertCourse(db,id='course-math') {
   db.prepare('INSERT INTO courses(id,title,subtitle,subject,grade,type,price,originalPrice,teacher,teacherRole,teacherColor,description,coverTheme,tags,status,createdAt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .run(id,'测试课程','测试课程副标题','数学','高二','系统课',299,399,'测试老师','主讲老师','#6793ef','课程说明','blue','[]','published',new Date().toISOString());
 }
+
+test('web routes work under a dot-prefixed parent without exposing private files',async t=>{
+  const parent=mkdtempSync(join(tmpdir(),'.zhike-web-'));
+  const webDir=join(parent,'web');mkdirSync(webDir);
+  writeFileSync(join(webDir,'index.html'),'<!doctype html><title>Course platform</title>');
+  writeFileSync(join(webDir,'.env'),'PRIVATE_TEST_MARKER');
+  const f=await fixture(t,{}, {webDir});
+  t.after(()=>rmSync(parent,{recursive:true,force:true}));
+  for(const path of ['/','/admin','/courses/example']) {
+    const response=await fetch(f.base+path);
+    assert.equal(response.status,200,path);
+    assert.match(response.headers.get('content-type'),/text\/html/);
+    assert.match(await response.text(),/Course platform/);
+  }
+  const hidden=await fetch(f.base+'/.env');
+  assert.doesNotMatch(await hidden.text(),/PRIVATE_TEST_MARKER/);
+  assert.equal((await f.request('/missing')).status,404);
+});
 
 test('student flow: catalog, preview, SMS, paid access, ownership, progress and persistent database',async t=>{
   const f=await fixture(t),r=f.request;

@@ -384,7 +384,7 @@ export function createApp(options={}) {
   const webDist=resolve(options.webDir||join(here,'../web/dist'));
   if(existsSync(webDist)) {
     app.use(express.static(webDist));
-    app.get('/{*path}',(req,res)=>res.sendFile(join(webDist,'index.html')));
+    app.get('/{*path}',(req,res)=>res.sendFile('index.html',{root:webDist}));
   }
   app.use((error,req,res,next)=>{
     if(res.headersSent) return next(error);
