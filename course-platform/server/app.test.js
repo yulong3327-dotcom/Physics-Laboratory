@@ -167,6 +167,29 @@ test('missing lesson videos return clear 404; removing the gift course does not 
   assert.equal((await r('/my/courses',{token:student.data.token})).data.length,0);
 });
 
+test('WeChat login reuses the verified identity and keeps WeChat session secrets on the server',async t=>{
+  const wechatProvider={appConfigured:true,payConfigured:false,async login(code){
+    if(code==='expired')throw new Error('微信登录凭证已失效');
+    return {openid:code==='another-user'?'openid-b':'openid-a',session_key:'private-wechat-session-key',unionid:'private-union-id'};
+  }};
+  const f=await fixture(t,{NODE_ENV:'production',DEMO_MODE:'false',ADMIN_PASSWORD:'Secure-Test-Password-9292',SESSION_SECRET:'a-test-secret-with-64-characters-for-production-configuration-checking'},{wechatProvider}),r=f.request;
+  assert.equal((await r('/auth/wechat',{method:'POST',body:{}})).status,400);
+  const first=await r('/auth/wechat',{method:'POST',body:{code:'first-code'}});
+  assert.equal(first.status,200);assert.equal(first.data.user.wechatLinked,true);assert.ok(first.data.token);
+  assert.equal(first.data.user.phone,'');
+  assert.deepEqual(Object.keys(first.data).sort(),['token','user']);
+  assert.doesNotMatch(JSON.stringify(first.data),/openid-a|private-wechat-session-key|private-union-id|session_key/);
+  const again=await r('/auth/wechat',{method:'POST',body:{code:'fresh-code-for-same-user'}});
+  assert.equal(again.data.user.id,first.data.user.id);assert.notEqual(again.data.token,first.data.token);
+  const another=await r('/auth/wechat',{method:'POST',body:{code:'another-user'}});
+  assert.notEqual(another.data.user.id,first.data.user.id);
+  assert.equal((await r('/me',{token:first.data.token})).data.id,first.data.user.id);
+  assert.equal((await r('/me',{token:another.data.token})).data.id,another.data.user.id);
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS count FROM users').get().count,2);
+  const expired=await r('/auth/wechat',{method:'POST',body:{code:'expired'}});
+  assert.equal(expired.status,502);assert.match(expired.data.message,/失效/);assert.equal(expired.data.token,undefined);
+});
+
 test('linking WeChat requires matching verified phone, preserves the current account and rejects identity conflicts',async t=>{
   const identities={matching:{openid:'wx-phone-user'},differentPhone:{openid:'wx-other-phone'},ownedOpenid:{openid:'wx-owned'},wxCurrent:{openid:'wx-current'},differentOpenid:{openid:'wx-different'},wxUnbound:{openid:'wx-unbound'}};
   const phones={matching:'13800138011',differentPhone:'13800138012',ownedOpenid:'13800138013',wxCurrent:'13800138014',ownedPhone:'13800138011',wxUnbound:'13800138015'};

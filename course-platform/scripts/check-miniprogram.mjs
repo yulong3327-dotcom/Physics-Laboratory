@@ -7,6 +7,15 @@ let errors=0;const error=message=>{console.error(message);errors++};
 for(const path of files){
  if(path.endsWith('.json')){try{const config=JSON.parse(readFileSync(path,'utf8'));for(const component of Object.values(config.usingComponents||{})){const base=component.startsWith('/')?join(root,component):resolve(dirname(path),component);if(!existsSync(base+'.js'))error(`组件不存在：${base}`)}}catch(e){error(`${path}: ${e.message}`)}}
  if(path.endsWith('.js')){const result=spawnSync(process.execPath,['--check',path],{encoding:'utf8'});if(result.status)error(result.stderr)}
+ if(path.endsWith('.wxml')){
+  const source=readFileSync(path,'utf8');
+  for(const tag of source.matchAll(/<[\w:-]+\b(?:"[^"]*"|'[^']*'|[^'">])*>/g)){
+   if(/\bwx:else(?:\s|=|\/?>)/.test(tag[0])&&/\bwx:for\s*=/.test(tag[0]))error(`${path}: wx:else 与 wx:for 请使用独立 block，避免 WCC 编译错误`);
+  }
+  for(const expression of source.matchAll(/\{\{[\s\S]*?\}\}/g)){
+   if(/&(?:amp|lt|gt|quot|apos);/.test(expression[0]))error(`${path}: WXML 表达式请使用原始运算符，不要使用 HTML 实体`);
+  }
+ }
 }
 const app=JSON.parse(readFileSync(join(root,'app.json'),'utf8'));
 for(const page of app.pages){for(const extension of ['js','json','wxml','wxss'])if(!existsSync(join(root,`${page}.${extension}`)))error(`页面文件缺失：${page}.${extension}`)}

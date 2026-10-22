@@ -9,6 +9,6 @@
   <view wx:if="{{loading}}" class="loading">正在寻找好课程…</view>
   <view wx:elif="{{error}}" class="error-card card"><view>{{error}}</view><button class="secondary" bindtap="load">重新加载</button></view>
   <view wx:elif="{{!courses.length}}" class="empty"><view class="empty-icon">▤</view><view class="empty-title">暂时没有匹配的课程</view><view class="empty-copy">试试其他科目或搜索词</view><button class="secondary" bindtap="reset">查看全部课程</button></view>
-  <course-card wx:else wx:for="{{courses}}" wx:key="id" course="{{item}}"/>
+  <block wx:else><course-card wx:for="{{courses}}" wx:key="id" course="{{item}}"/></block>
   <view class="footer-copy" wx:if="{{courses.length}}">认真学习的每一天，都在靠近更好的自己</view>
 </view>

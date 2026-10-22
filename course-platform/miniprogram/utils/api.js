@@ -17,7 +17,7 @@ function request(path, options) {
         if (response.statusCode >= 200 && response.statusCode < 300) {
           resolve(body && Object.prototype.hasOwnProperty.call(body, 'data') ? body.data : body);
         } else {
-          if (response.statusCode === 401) getApp().clearSession();
+          if (response.statusCode === 401 && getApp().globalData.token === token) getApp().clearSession();
           const error = new Error(body && (body.message || body.error) || '请求失败，请稍后重试');
           error.status = response.statusCode;
           reject(error);

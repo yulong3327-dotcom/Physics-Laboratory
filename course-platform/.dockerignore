@@ -7,6 +7,9 @@ server/uploads
 .env
 .env.*
 !.env.example
+secrets
+*.pem
+*.key
 project.private.config.json
 miniprogram/project.private.config.json
 *.log

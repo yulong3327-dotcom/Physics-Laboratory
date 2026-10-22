@@ -5,12 +5,15 @@ Page({
   onShow(){if(this.getTabBar())this.getTabBar().setData({selected:1});this.load();},
   onPullDownRefresh(){this.load().finally(()=>wx.stopPullDownRefresh());},
   load(){
-    const loggedIn=Boolean(getApp().globalData.token);this.setData({loggedIn});if(!loggedIn)return Promise.resolve();
+    const token=getApp().globalData.token,loggedIn=Boolean(token);this.setData({loggedIn});
+    if(!loggedIn){this.clearCourses();return Promise.resolve();}
     this.setData({loading:true,error:''});
     return request('/my/courses').then(rows=>{
+      if(getApp().globalData.token!==token)return;
       const courses=rows.map(format.course);this.setData({courses,courseTitles:courses.map(c=>c.title),total:courses.length,completed:courses.filter(c=>c.progressPercent>=100).length,subjects:['科目'].concat(Array.from(new Set(courses.map(c=>c.subject)))),types:['类型'].concat(Array.from(new Set(courses.map(c=>c.type)))),grades:['年级'].concat(Array.from(new Set(courses.map(c=>c.grade)))),loading:false});this.filter();
-    }).catch(error=>this.setData({loading:false,loggedIn:Boolean(getApp().globalData.token),error:error.message}));
+    }).catch(error=>{if(getApp().globalData.token!==token){if(!getApp().globalData.token)this.clearCourses();return;}this.setData({loading:false,error:error.message});});
   },
+  clearCourses(){this.setData({loggedIn:false,courses:[],courseTitles:[],visible:[],total:0,completed:0,loading:false,error:'',subject:'科目',type:'类型',grade:'年级',status:'课程状态',subjects:['科目'],types:['类型'],grades:['年级']});},
   choose(e){const field=e.currentTarget.dataset.field;const values=this.data[field==='status'?'statuses':field==='subject'?'subjects':field==='type'?'types':'grades'];this.setData({[field]:values[Number(e.detail.value)]});this.filter();},
   filter(){this.setData({visible:this.data.courses.filter(c=>(this.data.subject==='科目'||c.subject===this.data.subject)&&(this.data.type==='类型'||c.type===this.data.type)&&(this.data.grade==='年级'||c.grade===this.data.grade)&&(this.data.status==='课程状态'||(this.data.status==='已完成'?c.progressPercent>=100:c.progressPercent<100)))});},
   login(){wx.navigateTo({url:'/pages/login/index?returnTo='+encodeURIComponent('/pages/my-courses/index')});},

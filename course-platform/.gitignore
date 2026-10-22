@@ -3,6 +3,11 @@ web/dist/
 server/data/
 server/uploads/
 .env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
 *.log
 .tmp/
 miniprogram/project.private.config.json
