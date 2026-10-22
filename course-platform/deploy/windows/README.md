@@ -26,6 +26,8 @@
 
 此实例使用 Windows Server 与宝塔 Windows 面板。现有 Dockerfile 是 Linux 镜像，应使用原生 Node.js 24 与 Windows 服务方案，或另行准备兼容 Linux 容器的环境。
 
+可在开发机运行 `npm run package:windows`，将生成的 `.tmp/releases/zhike-windows-*.zip` 上传服务器并解压。发布包包含已构建网页、后端源码和本目录脚本，排除开发数据库与全部凭据。安装 Node.js 24 后在服务器 PowerShell 运行 `& '项目路径\deploy\windows\Prepare-Server.ps1'`，安装生产依赖并在 `.env` 不存在时生成随机管理密码、会话密钥。脚本不会覆盖已有 `.env`，仍需本地填写微信凭据、设置常驻进程和 HTTPS。Windows 示例通过 `HOST=127.0.0.1` 限制后端只供本机反向代理访问。
+
 1. 在服务器确认 Windows 版本、宝塔 Web 服务和端口占用情况，安装 Node.js 24。将 GitHub 分支 `codex/zhike-course-platform` 中的 `course-platform/` 放入固定目录（例如 `D:\course-platform`）。
 2. 在项目目录执行 `npm ci`、`npm run build`。将本目录 `.env.example` 复制为项目根 `.env`，在服务器本地填写独立管理密码（至少 12 位）、随机会话密钥（至少 32 位）与微信凭据。不要复制开发数据库或上传凭据到 GitHub。
 3. 先运行 `npm run check:wechat`，条件具备时运行 `npm run check:wechat -- --verify`，然后 `npm start`；检查 `http://127.0.0.1:4310/api/health` 和管理后台。
