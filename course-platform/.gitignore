@@ -1,0 +1,9 @@
+node_modules/
+web/dist/
+server/data/
+server/uploads/
+.env
+*.log
+.tmp/
+miniprogram/project.private.config.json
+project.private.config.json

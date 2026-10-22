@@ -1,0 +1,14 @@
+{
+  "description": "知课微信课程小程序",
+  "miniprogramRoot": "./",
+  "compileType": "miniprogram",
+  "appid": "wx943a02ab275a1cbe",
+  "projectname": "知课",
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "urlCheck": true
+  }
+}

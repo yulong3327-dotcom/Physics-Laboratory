@@ -1,0 +1,12 @@
+.git
+.tmp
+node_modules
+web/dist
+server/data
+server/uploads
+.env
+.env.*
+!.env.example
+project.private.config.json
+miniprogram/project.private.config.json
+*.log

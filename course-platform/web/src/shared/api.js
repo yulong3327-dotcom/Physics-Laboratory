@@ -1,0 +1,30 @@
+import React, {createContext,useContext,useState,useEffect} from 'react';
+const KEY='zhike_session';
+const read=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'null')}catch{return null}};
+const isAdmin=()=>location.pathname.startsWith('/admin');
+export async function api(path,options={}){
+  const session=read();const token=options.token??(isAdmin()?localStorage.getItem('zhike_admin_token'):session?.token);
+  const headers={...options.headers};if(token)headers.Authorization=`Bearer ${token}`;
+  let body=options.body;if(body&&!(body instanceof FormData)){headers['Content-Type']='application/json';body=JSON.stringify(body)}
+  const response=await fetch(`/api${path}`,{...options,headers,body});
+  const result=await response.json().catch(()=>({message:'服务器返回格式异常'}));
+  if(!response.ok){const error=new Error(result.message||result.error?.message||result.error||'操作失败，请重试');error.status=response.status;throw error}
+  return result && Object.prototype.hasOwnProperty.call(result,'data') ? result.data : result;
+}
+export async function downloadFile(id,name='课程资料'){
+  const session=read();const response=await fetch(`/api/materials/${encodeURIComponent(id)}/download`,{headers:{Authorization:`Bearer ${session?.token||''}`}});
+  if(!response.ok){const e=await response.json();throw new Error(e.message||e.error?.message||e.error||'下载失败')}
+  const disposition=response.headers.get('content-disposition')||'';
+  const encoded=disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if(encoded){try{name=decodeURIComponent(encoded)}catch{}}
+  const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),15000);
+}
+const Context=createContext(null);
+export function SessionProvider({children}){
+  const [session,setSession]=useState(read);
+  const login=(token,user)=>{const s={token,user};localStorage.setItem(KEY,JSON.stringify(s));setSession(s)};
+  const logout=()=>{localStorage.removeItem(KEY);setSession(null)};
+  useEffect(()=>{if(session?.token)api('/me',{token:session.token}).then(user=>setSession(s=>s?{...s,user}:s)).catch(e=>{if(e.status===401)logout()})},[]);
+  return React.createElement(Context.Provider,{value:{user:session?.user,token:session?.token,login,logout}},children);
+}
+export const useSession=()=>useContext(Context);

@@ -1,0 +1,35 @@
+{
+  "pages": [
+    "pages/discover/index",
+    "pages/my-courses/index",
+    "pages/profile/index",
+    "pages/login/index",
+    "pages/course/index",
+    "pages/checkout/index",
+    "pages/learn/index",
+    "pages/orders/index",
+    "pages/materials/index",
+    "pages/document/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "知课",
+    "navigationBarBackgroundColor": "#f7f8fa",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f7f8fa",
+    "backgroundTextStyle": "dark"
+  },
+  "tabBar": {
+    "custom": true,
+    "color": "#92959c",
+    "selectedColor": "#ff841e",
+    "backgroundColor": "#ffffff",
+    "list": [
+      {"pagePath": "pages/discover/index", "text": "发现课程"},
+      {"pagePath": "pages/my-courses/index", "text": "我的课程"},
+      {"pagePath": "pages/profile/index", "text": "个人中心"}
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

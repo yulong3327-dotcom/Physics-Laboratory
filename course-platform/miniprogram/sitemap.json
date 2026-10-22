@@ -1,0 +1,1 @@
+{"desc":"课程公开页面可被微信索引，个人页面不公开","rules":[{"action":"allow","page":"pages/discover/index"},{"action":"allow","page":"pages/course/index"},{"action":"disallow","page":"*"}]}

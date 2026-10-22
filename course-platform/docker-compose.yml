@@ -1,0 +1,26 @@
+services:
+  course-platform:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DEMO_MODE: "false"
+      PORT: "4310"
+      TRUST_PROXY: "1"
+      DATABASE_PATH: /app/server/data/courses.sqlite
+      UPLOAD_DIR: /app/server/data/uploads
+    ports:
+      - "127.0.0.1:4310:4310"
+    volumes:
+      - course-data:/app/server/data
+      - ./secrets:/run/secrets:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4310/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  course-data:

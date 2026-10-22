@@ -1,0 +1,1 @@
+Component({properties:{course:{type:Object,value:{}},mode:{type:String,value:'discover'}},methods:{open(){wx.navigateTo({url:'/pages/course/index?id='+encodeURIComponent(this.properties.course.id)});}}});
