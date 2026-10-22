@@ -1,6 +1,6 @@
 App({
   globalData: {
-    apiBaseUrl: 'http://127.0.0.1:4310',
+    apiBaseUrl: 'https://course.yulongchemistry.cn',
     user: null,
     token: '',
     config: null

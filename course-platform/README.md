@@ -41,8 +41,8 @@ npm start
 
 1. 可直接在微信开发者工具中导入本项目根目录，根 `project.config.json` 已设置 `miniprogramRoot` 指向 `miniprogram/`，并保留你在工具中填写的 AppID。开发语言选择 JavaScript，无需 npm 构建。
 2. 也可单独导入 `miniprogram` 文件夹；其中配置已与根目录当前 AppID 保持一致。真实微信能力仍需该小程序账号已开通相应能力。
-3. 本机服务保持运行。`miniprogram/app.js` 的 `apiBaseUrl` 默认为 `http://127.0.0.1:4310`，供本机工具调试。工具本地调试需允许未配置的开发域名；正式版本使用合法 HTTPS 域名。
-4. 真机无法访问电脑的 `127.0.0.1`，真机联调应使用可访问的测试 HTTPS 服务，并配置 request、downloadFile、uploadFile 域名。
+3. `miniprogram/app.js` 的 `apiBaseUrl` 默认连接线上后端 `https://course.yulongchemistry.cn`。使用线上服务时保持域名与 HTTPS 校验开启，并在该 AppID 的微信后台配置 request、downloadFile 合法域名。
+4. 本机调试可临时将地址改为 `http://127.0.0.1:4310`，保持本机后端运行，并仅在开发者工具中关闭本地合法域名校验。真机上的 `127.0.0.1` 指手机自身，真机联调和发布须使用 HTTPS 地址；恢复线上地址后重新编译。
 5. 演示账号和演示付款只在服务端 `DEMO_MODE=true` 时显示。真实微信认证使用 `wx.login`，微信支付使用 `wx.requestPayment`。
 
 已通过微信自带 WCC/WCSC 的全部模板、样式编译检查，并在开发者工具中完成真实微信登录、账号创建、本地会话恢复、退出与再次登录验证。完整视觉交互及真机流程仍需验收；未执行真实短信发送或真实扣款。本机微信配置与验证步骤见 [小程序说明](miniprogram/README.md)。

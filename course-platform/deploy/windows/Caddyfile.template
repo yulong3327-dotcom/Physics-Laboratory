@@ -1,0 +1,38 @@
+{
+	admin off
+	storage file_system {
+		root "@@DATA_PATH@@"
+	}
+	servers {
+		protocols h1 h2
+	}
+}
+
+@@DOMAIN@@ {
+	encode zstd gzip
+	request_body {
+		# Includes multipart overhead above the API's 250 MiB file limit.
+		max_size 270MB
+	}
+	reverse_proxy 127.0.0.1:4310 {
+		transport http {
+			dial_timeout 10s
+			response_header_timeout 300s
+		}
+	}
+	log {
+		output file "@@ACCESS_LOG_PATH@@" {
+			roll_size 10MiB
+			roll_keep 8
+			roll_keep_for 168h
+		}
+		format filter {
+			wrap json
+			fields {
+				request>uri delete
+				request>headers delete
+				resp_headers delete
+			}
+		}
+	}
+}

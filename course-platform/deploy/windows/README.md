@@ -33,14 +33,16 @@
 3. 先运行 `npm run check:wechat`，条件具备时运行 `npm run check:wechat -- --verify`，然后 `npm start`；检查 `http://127.0.0.1:4310/api/health` 和管理后台。
 4. 使用受维护的 Windows 服务包装器或面板中可用的进程管理功能配置服务常驻、工作目录、开机启动和故障重启，先验证重启恢复，再对外开放。仅运行终端中的 `npm start` 不构成常驻部署。
 5. 使用宝塔当前 Web 服务创建 `course.yulongchemistry.cn` 站点，安装该域名证书，将请求反向代理至 `http://127.0.0.1:4310`，传递正确的转发请求头，并按 250 MB 上传上限设置代理大小与超时。根据实际 IIS/Nginx 等服务选择对应配置，避免另装代理占用已有的 80/443。
-6. 腾讯云实例防火墙与 Windows 防火墙允许站点使用的 80/443；不对公网开放后端 4310。管理后台、面板及远程管理端口限制为管理员来源。
+6. 腾讯云实例防火墙与 Windows 防火墙允许站点使用的 80/443；不对公网开放后端 4310。使用 Caddy 安装器的 `-OpenFirewall` 前先用 `Get-Service MpsSvc` 确认 Windows Defender Firewall 服务正在运行；安装器不会改变系统防火墙的全局状态，创建规则失败会终止。管理后台、面板及远程管理端口限制为管理员来源。
 7. 在实际运行服务的账号下验证 `.env`、`secrets/`、数据库及上传目录的读取/写入权限；配置数据库和文件的共同备份、日志轮转与恢复演练。
+
+常驻服务和每日备份可使用本目录已提供的 `Install-Service.ps1`、`Backup-Service.ps1`、`Register-Backup.ps1`，具体安装、验收和恢复步骤见 [SERVICES.md](./SERVICES.md)。脚本不替换宝塔已有代理。
 
 ## 4. HTTPS 验收后配置微信
 
 - 健康检查：`https://course.yulongchemistry.cn/api/health`
 - 管理后台：`https://course.yulongchemistry.cn/admin`
-- `miniprogram/app.js` 的 `apiBaseUrl`：HTTPS 验收通过后改为 `https://course.yulongchemistry.cn`。本机调试期间继续使用现有地址。
+- `miniprogram/app.js` 的 `apiBaseUrl`：默认已设置为 `https://course.yulongchemistry.cn`。本机调试可临时改为 `http://127.0.0.1:4310`，真机和发布前恢复 HTTPS 地址。
 - 微信 request、downloadFile 合法域名：`https://course.yulongchemistry.cn`。学生端当前不上传文件；若后续加入上传功能，再设置对应 uploadFile 合法域名。视频或资料使用其他域名时按微信要求另外配置。
 - 支付通知 URL：`https://course.yulongchemistry.cn/api/payments/wechat/notify`。填写 URL 本身不会开通支付，还需配置商户并验证真实付款。
 
