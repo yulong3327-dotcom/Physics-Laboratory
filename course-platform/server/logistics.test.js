@@ -26,9 +26,11 @@ test('Kuaidi100 cache coalesces concurrent queries and keys carrier, number and 
   const provider=logisticsProvider(config,{clock:()=>timestamp,fetcher:async(url,options)=>{calls++;await new Promise(resolve=>setTimeout(resolve,5));const param=JSON.parse(new URLSearchParams(options.body).get('param'));return json({...result,com:param.com,nu:param.num});}});
   const [first,second]=await Promise.all([provider.query(query),provider.query(query)]);assert.equal(calls,1);assert.deepEqual(first,second);
   first.events[0].context='client mutation';assert.equal((await provider.query(query)).events[0].context,'已签收');assert.equal(calls,1);
-  await provider.query({...query,phone:'13800138002'});await provider.query({...query,trackingNumber:'SF1234567891'});await provider.query({...query,courierCode:'yuantong'});assert.equal(calls,4);
-  timestamp+=5*60*1000;await provider.query(query);assert.equal(calls,4);
-  timestamp+=25*60*1000;await provider.query(query);assert.equal(calls,5);
+  await assert.rejects(provider.query({...query,phone:'13800138002'}),error=>error.status===429);assert.equal(calls,1);
+  await provider.query({...query,trackingNumber:'SF1234567891'});await provider.query({...query,courierCode:'yuantong'});assert.equal(calls,3);
+  timestamp+=5*60*1000;await provider.query(query);assert.equal(calls,3);
+  timestamp+=25*60*1000;await provider.query({...query,phone:'13800138002'});assert.equal(calls,4);
+  await assert.rejects(provider.query(query),error=>error.status===429);assert.equal(calls,4);
 });
 
 test('Kuaidi100 configuration, carrier and input errors fail before networking',async()=>{
@@ -52,10 +54,13 @@ test('Kuaidi100 remote errors, malformed/bounded data and network failures never
   assert.doesNotMatch(JSON.stringify(await reflected.query(query)),/test-customer|test-server-key/);
 });
 
-test('Kuaidi100 not-found is explicit, timeout is bounded, and transient errors are not cached',async()=>{
+test('Kuaidi100 not-found is explicit, timeout is bounded, and failed queries retain the waybill cooldown',async()=>{
   const none=logisticsProvider(config,{fetcher:async()=>json({returnCode:'500',message:'upstream private text'})});
   const absent=await none.query(query);assert.equal(absent.status,'not_found');assert.deepEqual(absent.events,[]);assert.doesNotMatch(absent.message,/upstream/);
   const timed=logisticsProvider(config,{timeoutMs:10,fetcher:async()=>new Promise(()=>{})});await assert.rejects(timed.query(query),error=>error.status===504&&error.code==='LOGISTICS_TIMEOUT');
-  let calls=0;const retry=logisticsProvider(config,{fetcher:async()=>{calls++;if(calls===1)throw new Error('temporary');return json(result);}});
-  await assert.rejects(retry.query(query));assert.equal((await retry.query(query)).status,'3');assert.equal(calls,2);
+  let calls=0,timestamp=Date.parse('2026-10-23T00:00:00Z');const retry=logisticsProvider(config,{clock:()=>timestamp,fetcher:async()=>{calls++;if(calls===1)throw new Error('temporary');return json(result);}});
+  await assert.rejects(retry.query(query));
+  await assert.rejects(retry.query(query),error=>error.status===429);assert.equal(calls,1);
+  await assert.rejects(retry.query({...query,phone:'13800138002'}),error=>error.status===429);assert.equal(calls,1);
+  timestamp+=30*60*1000;assert.equal((await retry.query(query)).status,'3');assert.equal(calls,2);
 });

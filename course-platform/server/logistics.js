@@ -54,7 +54,7 @@ export function logisticsProvider(config,{fetcher=(...args)=>fetch(...args),cloc
   const missing=['KUAIDI100_CUSTOMER','KUAIDI100_KEY'].filter(name=>typeof config[name]!=='string' || !config[name].trim());
   if(provider!=='kuaidi100')missing.unshift('LOGISTICS_PROVIDER');
   const configured=missing.length===0;
-  const cache=new Map(),inflight=new Map();
+  const cache=new Map(),inflight=new Map(),cooldowns=new Map();
   function safeText(value,max) {
     if(typeof value!=='string')return '';
     let result=value.replace(/[\x00-\x1f\x7f]/g,' ').trim().slice(0,max);
@@ -111,6 +111,14 @@ export function logisticsProvider(config,{fetcher=(...args)=>fetch(...args),cloc
       const cached=cache.get(key);
       if(cached && cached.expires>clock())return structuredClone(cached.value);
       if(inflight.has(key))return structuredClone(await inflight.get(key));
+      // The upstream limit applies to the waybill, including failed queries and
+      // retries with a changed recipient phone. Never share a phone-bound result.
+      const waybillKey=createHash('sha256').update(JSON.stringify([courierCode,trackingNumber.toUpperCase()])).digest('hex');
+      const nextQueryAt=cooldowns.get(waybillKey)||0;
+      if(nextQueryAt>clock())throw new LogisticsError(429,'LOGISTICS_COOLDOWN',`该运单刚刚查询过，请约 ${Math.ceil((nextQueryAt-clock())/60000)} 分钟后重试`);
+      for(const [item,expires] of cooldowns)if(expires<=clock())cooldowns.delete(item);
+      if(cooldowns.size>=2000)throw new LogisticsError(429,'LOGISTICS_BUSY','物流查询繁忙，请稍后重试');
+      cooldowns.set(waybillKey,clock()+cacheLifetime);
       const request=queryRemote({courierCode,trackingNumber,phone}).then(value=>{
         for(const [cacheKey,entry] of cache)if(entry.expires<=clock())cache.delete(cacheKey);
         if(cache.size>=2000)cache.delete(cache.keys().next().value);
