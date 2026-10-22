@@ -1,6 +1,6 @@
 # Windows Server 域名与部署参数
 
-目标服务器公网 IPv4：`43.138.144.203`。课程站点使用 `course.yulongchemistry.cn`，同一域名提供 API、学生网页和 `/admin` 管理后台。本文件为部署准备说明，不表示已完成服务器安装、域名解析、备案或 HTTPS 配置。
+目标服务器公网 IPv4：`43.138.144.203`。课程站点使用 `course.yulongchemistry.cn`，同一域名提供 API、学生网页和 `/admin` 管理后台。本文件为部署操作说明；当前实例的安装与实测状态见 [部署记录](DEPLOYED.md)。
 
 ## 1. 确认备案
 
@@ -24,7 +24,7 @@
 
 ## 3. 服务器部署
 
-此实例使用 Windows Server 与宝塔 Windows 面板。现有 Dockerfile 是 Linux 镜像，应使用原生 Node.js 24 与 Windows 服务方案，或另行准备兼容 Linux 容器的环境。
+此实例使用 Windows Server，当前已采用原生 Node.js 24、WinSW 服务与 Caddy 反向代理。现有 Dockerfile 是 Linux 镜像，不能直接用于当前原生 Windows 环境。
 
 可在开发机运行 `npm run package:windows`，将生成的 `.tmp/releases/zhike-windows-*.zip` 上传服务器并解压。发布包包含已构建网页、后端源码和本目录脚本，排除开发数据库与全部凭据。安装 Node.js 24 后在服务器 PowerShell 运行 `& '项目路径\deploy\windows\Prepare-Server.ps1'`，安装生产依赖并在 `.env` 不存在时生成随机管理密码、会话密钥。脚本不会覆盖已有 `.env`，仍需本地填写微信凭据、设置常驻进程和 HTTPS。Windows 示例通过 `HOST=127.0.0.1` 限制后端只供本机反向代理访问。
 

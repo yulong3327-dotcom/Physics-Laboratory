@@ -1,6 +1,6 @@
 # 知课 · 微信课程小程序
 
-生产部署步骤见 [DEPLOYMENT.md](DEPLOYMENT.md)。
+生产部署步骤见 [DEPLOYMENT.md](DEPLOYMENT.md)，当前云端部署与新 AppID 的实测结果见 [部署记录](deploy/windows/DEPLOYED.md)。
 
 一套可本地运行的课程销售与学习系统，包含原生微信小程序、学生网页预览、网页管理后台和 Node.js 服务端。界面参考所提供的课程截图，采用浅灰背景、白色圆角卡片和橙色主色。
 
