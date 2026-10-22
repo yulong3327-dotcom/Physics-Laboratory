@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createApp } from './app.js';
+import { WechatAuthError } from './wechat.js';
 
 async function fixture(t, env={},options={}) {
   const dir=mkdtempSync(join(tmpdir(),'zhike-test-'));
@@ -169,7 +170,7 @@ test('missing lesson videos return clear 404; removing the gift course does not 
 
 test('WeChat login reuses the verified identity and keeps WeChat session secrets on the server',async t=>{
   const wechatProvider={appConfigured:true,payConfigured:false,async login(code){
-    if(code==='expired')throw new Error('微信登录凭证已失效');
+    if(code==='expired')throw new WechatAuthError(400,'微信登录凭证已失效');
     return {openid:code==='another-user'?'openid-b':'openid-a',session_key:'private-wechat-session-key',unionid:'private-union-id'};
   }};
   const f=await fixture(t,{NODE_ENV:'production',DEMO_MODE:'false',ADMIN_PASSWORD:'Secure-Test-Password-9292',SESSION_SECRET:'a-test-secret-with-64-characters-for-production-configuration-checking'},{wechatProvider}),r=f.request;
@@ -187,7 +188,40 @@ test('WeChat login reuses the verified identity and keeps WeChat session secrets
   assert.equal((await r('/me',{token:another.data.token})).data.id,another.data.user.id);
   assert.equal(f.db.prepare('SELECT COUNT(*) AS count FROM users').get().count,2);
   const expired=await r('/auth/wechat',{method:'POST',body:{code:'expired'}});
-  assert.equal(expired.status,502);assert.match(expired.data.message,/失效/);assert.equal(expired.data.token,undefined);
+  assert.equal(expired.status,400);assert.match(expired.data.message,/失效/);assert.equal(expired.data.token,undefined);
+});
+
+test('WeChat login rejects malformed provider identities and phone responses before creating accounts',async t=>{
+  let identity={openid:'verified-openid'},phone='13800138019',loginCalls=0;
+  const f=await fixture(t,{}, {wechatProvider:{appConfigured:true,payConfigured:false,async login(){loginCalls++;return identity;},async phone(){return phone;}}}),r=f.request;
+  for(const code of [{},[],123,'','x'.repeat(257),'white space']) {
+    assert.equal((await r('/auth/wechat',{method:'POST',body:{code}})).status,400);
+  }
+  assert.equal(loginCalls,0);
+  for(identity of [undefined,null,{}, {openid:{}},{openid:' '},{openid:'openid\nattack'},{openid:'x'.repeat(129)}]) {
+    const result=await r('/auth/wechat',{method:'POST',body:{code:'fresh-code'}});
+    assert.equal(result.status,502);assert.equal(result.data.token,undefined);
+  }
+  identity={openid:'verified-openid'};
+  for(phone of [undefined,'',13800138019,'+8613800138019','not-a-phone','1380013801']) {
+    const result=await r('/auth/wechat',{method:'POST',body:{code:'fresh-code',phoneCode:'phone-code'}});
+    assert.equal(result.status,502);assert.equal(result.data.token,undefined);
+  }
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS count FROM users').get().count,0);
+  phone='13800138019';
+  const valid=await r('/auth/wechat',{method:'POST',body:{code:'fresh-code',phoneCode:'phone-code'}});
+  assert.equal(valid.status,200);assert.equal(valid.data.user.phone,phone);
+  phone='13800138020';
+  const changed=await r('/auth/wechat',{method:'POST',body:{code:'fresh-code',phoneCode:'phone-code'}});
+  assert.equal(changed.status,409);assert.equal(changed.data.token,undefined);
+  assert.equal(f.db.prepare('SELECT phone FROM users').get().phone,'13800138019');
+});
+
+test('WeChat login never exposes unexpected provider errors or request credentials',async t=>{
+  const f=await fixture(t,{}, {wechatProvider:{appConfigured:true,payConfigured:false,async login(){throw new Error('request failed https://api.weixin.qq.com?secret=never-expose-this');}}}),r=f.request;
+  const result=await r('/auth/wechat',{method:'POST',body:{code:'fresh-code'}});
+  assert.equal(result.status,502);assert.doesNotMatch(result.data.message,/never-expose|secret|https/);
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS count FROM users').get().count,0);
 });
 
 test('linking WeChat requires matching verified phone, preserves the current account and rejects identity conflicts',async t=>{

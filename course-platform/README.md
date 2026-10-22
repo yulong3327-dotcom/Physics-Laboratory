@@ -45,7 +45,7 @@ npm start
 4. 真机无法访问电脑的 `127.0.0.1`，真机联调应使用可访问的测试 HTTPS 服务，并配置 request、downloadFile、uploadFile 域名。
 5. 演示账号和演示付款只在服务端 `DEMO_MODE=true` 时显示。真实微信认证使用 `wx.login`，微信支付使用 `wx.requestPayment`。
 
-已通过微信自带 WCC/WCSC 的全部模板、样式编译检查。当前开发者工具模拟器运行检查超时，完整交互及真机流程仍需验收；未执行真实短信发送或真实扣款。本机真实微信登录配置见 [小程序说明](miniprogram/README.md)。
+已通过微信自带 WCC/WCSC 的全部模板、样式编译检查，并在开发者工具中完成真实微信登录、账号创建、本地会话恢复、退出与再次登录验证。完整视觉交互及真机流程仍需验收；未执行真实短信发送或真实扣款。本机微信配置与验证步骤见 [小程序说明](miniprogram/README.md)。
 
 ## 接入真实微信、短信和支付
 
@@ -58,6 +58,7 @@ Copy-Item .env.example .env
 正式环境设置 `NODE_ENV=production`、`DEMO_MODE=false`，并设置独立管理员密码（至少 12 位）与随机 `SESSION_SECRET`（至少 32 位）。生产启动拒绝默认管理员密码和演示功能。
 
 - 微信登录：`WECHAT_APP_ID`、`WECHAT_APP_SECRET`。AppID 必须与小程序项目一致，密钥只存服务端。
+- 配置检查：`npm run check:wechat` 只检查本地配置，`npm run check:wechat -- --verify` 向微信官方验证 AppID/AppSecret，均不输出密钥和访问令牌。修改 `.env` 后重启服务。
 - 手机号授权：使用微信提供的手机号授权 code；手机号验证码登录是另一条路径，两者均已实现。手机号账号购买前会引导关联同一手机号的微信身份以获取支付所需 openid；后台绑定接口保留当前账号及课程，拒绝不同手机号和身份冲突。
 - 短信：默认使用腾讯云短信 SDK；配置 `TENCENT_SMS_SECRET_ID`、`TENCENT_SMS_SECRET_KEY`、`TENCENT_SMS_APP_ID`、已审核的 `TENCENT_SMS_SIGN_NAME` 和验证码 `TENCENT_SMS_TEMPLATE_ID`。也可显式设置 `SMS_PROVIDER=http` 使用兼容 HTTP 适配服务。
 - 微信支付：配置商户号、商户证书序列号、商户私钥路径、API V3 密钥、微信平台证书/公钥路径及序列号、支付通知 URL。通知 URL 为 `https://你的域名/api/payments/wechat/notify`。平台证书轮换后同步更新配置。

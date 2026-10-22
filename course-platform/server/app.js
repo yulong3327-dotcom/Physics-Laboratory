@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 import { resolve, join, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDatabase } from './database.js';
-import { wechatProvider } from './wechat.js';
+import { wechatProvider, WechatAuthError, validWechatOpenid } from './wechat.js';
 import { smsProvider } from './sms.js';
 
 const here=dirname(fileURLToPath(import.meta.url));
@@ -145,12 +145,23 @@ export function createApp(options={}) {
   app.post(['/api/auth/phone','/api/auth/sms/login'],phoneLogin);
   const wechatLogin=asyncRoute(async(req,res)=>{
     if(req.body.demo===true) {ensureDemo();return demoLogin(req,res);}
-    if(!wechat.appConfigured) throw fail(503,'微信登录尚未配置 AppID 和 AppSecret；可使用手机号登录或演示登录');
-    const code=textValue(req.body.code,256);if(!code) throw fail(400,'缺少微信登录 code');
+    if(!wechat.appConfigured) throw fail(503,'微信登录尚未配置 AppID 和 AppSecret，请管理员完成后端配置');
+    if(typeof req.body.code!=='string' || !req.body.code.trim() || req.body.code.length>256 || /\s/.test(req.body.code)) throw fail(400,'缺少有效的微信登录 code，请重新授权');
+    const code=req.body.code;
+    const phoneCode=req.body.phoneCode;
+    if(phoneCode!==undefined && (typeof phoneCode!=='string' || !phoneCode || phoneCode.length>512 || /\s/.test(phoneCode))) throw fail(400,'微信手机号授权凭证无效，请重新授权');
     let session,phone;
-    try {session=await wechat.login(code);if(req.body.phoneCode) phone=await wechat.phone(textValue(req.body.phoneCode,512));} catch(error) {throw fail(502,error.message);}
+    try {
+      session=await wechat.login(code);
+      if(!validWechatOpenid(session?.openid)) throw new WechatAuthError(502,'微信未返回有效的用户标识，请重新授权');
+      if(phoneCode) {
+        phone=await wechat.phone(phoneCode);
+        if(typeof phone!=='string' || !/^1[3-9]\d{9}$/.test(phone)) throw new WechatAuthError(502,'微信未返回有效的中国大陆手机号，请重新授权');
+      }
+    } catch(error) {throw fail(error instanceof WechatAuthError?error.status:502,error instanceof WechatAuthError?error.message:'微信登录服务暂时不可用，请稍后重试');}
     let user=get('SELECT * FROM users WHERE openid=?',session.openid);
     const phoneUser=phone?get('SELECT * FROM users WHERE phone=?',phone):null;
+    if(user?.phone && phone && user.phone!==phone) throw fail(409,'授权手机号与当前微信账号已绑定手机号不一致，请使用原手机号登录或联系管理员处理');
     if(user && phoneUser && user.id!==phoneUser.id) throw fail(409,'此手机号已绑定其他账号，请使用手机号登录后联系管理员处理');
     if(!user && phoneUser) {
       if(phoneUser.openid && phoneUser.openid!==session.openid) throw fail(409,'此手机号已绑定其他微信账号');
@@ -169,8 +180,8 @@ export function createApp(options={}) {
     const code=textValue(req.body.code,256),phoneCode=textValue(req.body.phoneCode,512);
     if(!code || !phoneCode) throw fail(400,'请同时提供微信登录 code 和手机号授权 phoneCode');
     let identity,phone;
-    try {identity=await wechat.login(code);phone=await wechat.phone(phoneCode);} catch(error) {throw fail(502,error.message);}
-    if(typeof identity?.openid!=='string' || !identity.openid || !/^1[3-9]\d{9}$/.test(phone||'')) throw fail(502,'微信未返回有效的账号或手机号，请重新授权');
+    try {identity=await wechat.login(code);phone=await wechat.phone(phoneCode);} catch(error) {throw fail(error instanceof WechatAuthError?error.status:502,error instanceof WechatAuthError?error.message:'微信授权服务暂时不可用，请稍后重试');}
+    if(!validWechatOpenid(identity?.openid) || !/^1[3-9]\d{9}$/.test(phone||'')) throw fail(502,'微信未返回有效的账号或手机号，请重新授权');
     db.exec('BEGIN IMMEDIATE');
     try {
       const current=get('SELECT * FROM users WHERE id=?',req.auth.userId);

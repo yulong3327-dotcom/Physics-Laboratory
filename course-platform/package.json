@@ -16,7 +16,8 @@
     "test": "npm --prefix server test && npm run test:miniprogram && npm run check:miniprogram",
     "test:miniprogram": "node --test scripts/tests/*.test.cjs",
     "check:miniprogram": "node scripts/check-miniprogram.mjs",
-    "check:miniprogram:compile": "node scripts/compile-miniprogram.mjs"
+    "check:miniprogram:compile": "node scripts/compile-miniprogram.mjs",
+    "check:wechat": "node scripts/check-wechat-login.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
