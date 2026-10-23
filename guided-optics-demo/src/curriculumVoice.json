@@ -4,8 +4,8 @@
   {"id":"003","text":"寻找最小、最亮的光斑","speech":"尝试移动光屏，看看你能发现什么。","file":"voice/curriculum/003.mp3","audio":"voice/07.wav"},
   {"id":"004","text":"从刻度读出焦距","speech":"很好！平行光经凸透镜后会聚于焦点。光屏上出现最小、最亮的光斑时，光屏到凸透镜的距离就是焦距。填写答案时，要根据光具座的刻度进行估读。","file":"voice/curriculum/004.mp3","audio":null},
   {"id":"005","text":"第二种方法：看物距、像距图像","speech":"寻找焦距的第二种方法是看图像。先在光具座上安装蜡烛。","file":"voice/curriculum/005.mp3","audio":null},
-  {"id":"006","text":"移动蜡烛，收集成像数据","speech":"尝试移动蜡烛。每次让光屏上出现清晰的像，再记录物距和像距，就能绘制它们的关系图像。","file":"voice/curriculum/006.mp3","audio":null},
-  {"id":"007","text":"找到物距等于像距的交点","speech":"图像上有一个位置，物距和像距相等。这时，它们都等于二倍焦距，所以把这个距离除以二，也能找到焦距。","file":"voice/curriculum/007.mp3","audio":null},
+  {"id":"006","text":"动一动，看图上的点跟着走","speech":"图像已经画好啦！试着移动蜡烛或光屏，看看图上的点怎样跟着移动。绿点表示像已清晰，橙点说明光屏还需要调焦。","file":"voice/curriculum/006.mp3","audio":null},
+  {"id":"007","text":"物距等于像距时，两者都等于二倍焦距","speech":"看，图上已经标出物距和像距相等的位置。这时，它们都等于二倍焦距。本实验中，这个距离是二十厘米，除以二，就得到焦距十厘米。","file":"voice/curriculum/007.mp3","audio":null},
   {"id":"008","text":"让像落在容易观察的位置","speech":"探究凸透镜成像规律前，要保证像出现在光屏上容易观察的位置。","file":"voice/curriculum/008.mp3","audio":null},
   {"id":"009","text":"调节焰心，让三个中心同高","speech":"试着调整蜡烛的高度。过高或过低，都可能让像不能完整呈现在光屏上。要让烛焰的焰心、凸透镜的光心和光屏的中心，大致处在同一高度。","file":"voice/curriculum/009.mp3","audio":"voice/04.wav"},
   {"id":"010","text":"换上 F 光源试试看","speech":"实验中也能使用F光源。用F光源替换蜡烛，试一下吧！","file":"voice/curriculum/010.mp3","audio":null},
@@ -53,5 +53,5 @@
   {"id":"052","text":"烛焰下降，实像上升","speech":"很好！烛焰下降，光屏上的像在上升。成实像时，像和物体在垂直于主光轴方向上的移动方向相反。","file":"voice/curriculum/052.mp3","audio":null},
   {"id":"053","text":"互换蜡烛和光屏的位置","speech":"现在光屏上有一个清晰的像。请把蜡烛和光屏的位置互换，看看会发生什么。","file":"voice/curriculum/053.mp3","audio":null},
   {"id":"054","text":"光路可逆，仍能成清晰的像","speech":"互换后，仍能成清晰的像。我们这次从缩小实像换成了放大实像，这是因为光路是可逆的。","file":"voice/curriculum/054.mp3","audio":null},
-  {"id":"055","text":"把发现整理成实验记录","speech":"恭喜你，完成了本次实验的探究！最后，再复习一下实验中学习到的知识和技巧吧！","file":"voice/curriculum/055.mp3","audio":null}
+  {"id":"055","text":"成像规律总表，截图带走吧！","speech":"恭喜你，完成了本次实验的探究！成像规律已经整理成这张表，截图保存吧。记住，一倍焦距分虚实，二倍焦距分大小。","file":"voice/curriculum/055.mp3","audio":null}
 ]

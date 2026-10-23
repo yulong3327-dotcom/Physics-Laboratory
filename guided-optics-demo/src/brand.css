@@ -237,3 +237,50 @@ body { background: #f3f2fb; }
   .curriculum-app .scale-label, .curriculum-app .screen-heading > span, .curriculum-app .view-caption { font-size: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { .guided-action::after { animation: none; } }
+.curriculum-app .topic-grid button[aria-current=true] { border-color: #785bf6; background: #f2edff; }
+.curriculum-app .graph-area svg text { font-family: "Lab Round", "Lab Text", "Lab Math", sans-serif; font-size: 19px; }
+.curriculum-app .graph-area svg .graph-equal-label { fill: #218767; font-weight: 700; }
+.graph-live-reading { display: flex; flex: none; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; padding: 6px 12px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.graph-live-reading.focused { color: #218767; }
+.graph-live-reading.unfocused { color: #9a5725; }
+.graph-live-reading i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.graph-live-reading strong { margin-left: auto; font-weight: 600; }
+.graph-equal-button { flex: none; width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 1px solid #cce7da; border-radius: 6px; background: #edf8f3; color: #246d55; }
+.graph-conclusion { flex: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; padding: 8px 12px; background: #edf8f3; border-top: 1px solid #cce7da; color: #246d55; font-size: 14px; }
+.summary-view .conclusion-section { flex: 1; }
+.summary-view .record-header { min-height: 38px; }
+.summary-view .record-header strong { font-size: 18px; }
+.summary-view .table-scroll { display: flex; flex: 1; }
+.summary-view .conclusion-table { min-width: 0; table-layout: fixed; font-size: 16px; }
+.summary-view .conclusion-table th, .summary-view .conclusion-table td { padding: 9px; white-space: normal; overflow-wrap: anywhere; text-align: center; }
+.summary-view .conclusion-table th:nth-child(2) { width: 25%; }
+.conclusion-rules { flex: none; padding: 12px; text-align: center; color: #4f4563; background: #faf7ff; }
+.conclusion-rules p { margin: 0; font-size: 16px; line-height: 1.6; }
+.conclusion-rules p:first-child { font-weight: 700; }
+.summary-actions { flex: none; display: flex; justify-content: center; gap: 10px; }
+.summary-actions .secondary-button { min-width: 0; padding: 6px 12px; }
+@media (orientation: landscape) and (max-height: 600px) {
+  .graph-live-reading { padding: 4px 8px; font-size: 13px; }
+  .graph-conclusion { padding: 5px 8px; font-size: 13px; }
+  .summary-view .main { gap: 6px; }
+  .summary-view .record-header { height: 28px; min-height: 28px; }
+  .summary-view .record-header strong { font-size: 15px; }
+  .summary-view .conclusion-table { font-size: 14px; }
+  .summary-view .conclusion-table th, .summary-view .conclusion-table td { padding: 3px 5px; }
+  .conclusion-rules { padding: 4px 8px; }
+  .conclusion-rules p { font-size: 13px; line-height: 1.5; }
+  .summary-actions .secondary-button { min-height: 30px; font-size: 13px; }
+}
+@media (orientation: portrait) {
+  .summary-view .conclusion-section { min-height: 410px; }
+  .summary-view .conclusion-table { font-size: 13px; }
+  .summary-view .conclusion-table th, .summary-view .conclusion-table td { padding: 8px 3px; }
+  .summary-view .record-header strong { font-size: 16px; }
+  .conclusion-rules p { font-size: 14px; }
+  .summary-actions { gap: 6px; }
+  .summary-actions .secondary-button { font-size: 13px; padding: 6px 8px; }
+}
+@media print {
+  .summary-actions { display: none; }
+  .summary-view .table-scroll { display: block; }
+}

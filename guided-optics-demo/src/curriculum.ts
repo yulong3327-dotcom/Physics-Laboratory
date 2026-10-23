@@ -22,7 +22,7 @@ const imageQ=(size:string,application?:string)=>q('观察清晰的像，填写�
 export const stages:Stage[]=[
   {id:'setup',group:'粗测焦距（会聚）',title:'放置器材',cue:'001',actionCue:'002',resultCue:'003',parallel:true,task:'依次放好平行光源、凸透镜、光屏。'},
   {id:'focus',group:'粗测焦距（会聚）',title:'最小最亮光斑',cue:'003',resultCue:'004',parallel:true,screenMove:true,task:'缓慢移动光屏，找到最小、最亮的光斑。',question:q('平行光经凸透镜后，光斑最小最亮的位置代表什么？',[select('这个位置','透镜的焦点',['透镜的焦点','透镜的二倍焦点','光屏中心'])],'凸透镜会使平行光会聚，最小最亮的光斑位于焦点。')},
-  {id:'graph',group:'粗测焦距（图像）',title:'描点寻找等距位置',cue:'005',actionCue:'006',resultCue:'007',object:true,screenMove:true,task:'改变蜡烛位置，每次调出清晰像并记录，至少收集三组不同数据。',question:q('物距与像距相等时，它们和焦距有什么关系？',[select('等距点对应','两者都等于二倍焦距',['两者都等于二倍焦距','两者都等于焦距','物距等于焦距、像距等于二倍焦距'])],'等距点满足 u = v = 2f，所以焦距是等距值的一半。')},
+  {id:'graph',group:'粗测焦距（图像）',title:'看图像认识二倍焦距',cue:'005',actionCue:'006',resultCue:'007',u:20,screen:20,object:true,screenMove:true,task:'拖动蜡烛或光屏，看图上的点同步移动；物距与像距相等时，都等于二倍焦距。',question:q('图中标出的物距＝像距位置，对应怎样的焦距关系？',[select('物距与像距','两者都等于二倍焦距',['两者都等于二倍焦距','两者都等于焦距','物距等于焦距、像距等于二倍焦距'])],'物距与像距相等时，u = v = 2f；焦距是这个距离的一半。')},
   {id:'alignment',group:'三心同高',title:'调节焰心高度',cue:'008',actionCue:'009',resultCue:'old-06',height:true,u:20,screen:20,task:'上下拖动蜡烛，让焰心、光心与光屏中心同高。',question:q('为了使像落在光屏中央，应怎样调整？',[select('三个中心应','大致同高',['大致同高','依次升高','依次降低'])],'看水平主光轴，让三个中心落在同一条水平线上。')},
   {id:'f-source',group:'F 型光源',title:'比较上下与左右',cue:'010',resultCue:'011',u:20,screen:20,task:'将蜡烛替换为 F 光源，比较物与像。',question:q('光屏上的 F 像与光源相比怎样变化？',[select('上下方向','颠倒',['相同','颠倒']),select('左右方向','相反',['相同','相反'])],'实像相当于将 F 绕中心转过 180°，同时比较上下和左右。')},
   {id:'small',group:'成像特点与应用',title:'缩小实像与照相机',cue:'012',actionCue:'013',resultCue:'014',object:true,screenMove:true,targetU:30,targetURange:[22,35],task:'把蜡烛放到离透镜较远的位置，再移动光屏寻找清晰的像。',question:imageQ('缩小','照相机')},
@@ -44,7 +44,7 @@ export const stages:Stage[]=[
   {id:'causes',group:'无法成像',title:'逐个排查三类原因',cue:'047',resultCue:'050',task:'依次点开三个原因，观察各自对应的实验现象。',question:q('三个中心已同高，物体在焦点外，但导轨上仍找不到清晰像，可能是什么原因？',[select('最可能的原因','光具座太短',['三心不同高','物体位于焦点内','光具座太短'])],'物体在焦点外应成实像；如果像距超过光具座范围，光屏便无法承接。')},
   {id:'burn',group:'蜡烛燃烧',title:'观察烛焰与像的升降',cue:'051',resultCue:'052',u:20,screen:20,task:'换上新蜡烛，点燃并推进燃烧，观察烛焰和像的位置。',question:q('成实像时，烛焰下降，像怎样移动？',[select('像的移动方向','上升',['上升','下降','不动'])],'物距与焦距不变，实像与物体的竖直移动方向相反。')},
   {id:'swap',group:'像物互换',title:'验证光路可逆',cue:'053',resultCue:'054',u:30,screen:15,task:'保持凸透镜不动，将蜡烛和光屏在透镜两侧的位置互换。',question:q('互换后仍能成清晰的像，它有什么变化？',[select('像的大小','放大',sizes),select('说明','光路可逆',['光路可逆','焦距改变'])],'物距和像距互换后，像仍清晰，说明光路可逆。')},
-  {id:'summary',group:'结课总结',title:'凸透镜成像规律总表',cue:'055',resultCue:'055',task:'回顾成像规律总表，完成本节实验。'},
+  {id:'summary',group:'结课总结',title:'凸透镜成像规律总表',cue:'055',resultCue:'055',task:'本课结论已整理好，截图保存这张成像规律总表吧！'},
 ]
 export const groups=[...new Set(stages.map(s=>s.group))]
 export const STORAGE_KEY='guided-optics.curriculum.v3'
@@ -88,7 +88,7 @@ export function ready(s:LabState):boolean{
   const stage=stages[s.step],p=physicsFor(s)
   switch(stage.id){
     case 'setup':return s.equipment===3
-    case 'graph':return s.samples.length>=3&&s.samples.some(p=>Math.abs(p.u-p.v)<.3)
+    case 'graph':return s.touched
     case 'alignment':return s.height===0
     case 'f-source':return s.source==='F'
     case 'virtual':return s.throughLens
