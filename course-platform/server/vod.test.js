@@ -28,7 +28,7 @@ test('missing VOD configuration fails closed and never calls cloud APIs',async()
 });
 
 test('paid playback refuses unprotected aliases, mismatched signing keys, unready domains and expired HTTPS',async()=>{
-  for(const domains of [[domain(),{Domain:'default.vod.example',DeployStatus:'Online',UrlSignatureAuthPolicy:{Status:'Disabled'}}],[{...domain(),UrlSignatureAuthPolicy:{Status:'Enabled',EncryptedKey:'other'}}],[{...domain(),DeployStatus:'Deploying'}],[{...domain(),HTTPSConfig:{CertExpireTime:'2020-01-01T00:00:00Z'}}]]) {
+  for(const domains of [[domain(),{Domain:'default.vod.example',DeployStatus:'Online',UrlSignatureAuthPolicy:{Status:'Disabled'}}],[{...domain(),UrlSignatureAuthPolicy:{Status:'Enabled',EncryptedKey:'other'}}],[{...domain(),DeployStatus:'Deploying'}],[{...domain(),HTTPSConfig:{CertExpireTime:'2020-01-01T00:00:00Z'}}],[{...domain(),HTTPSConfig:{CertExpireTime:'not-a-date'}}],[{...domain(),HTTPSConfig:undefined}]]) {
     const provider=vodProvider(env,{client:{async DescribeVodDomains(){return {DomainSet:domains,TotalCount:domains.length};}}});
     await assert.rejects(provider.playback({ready:true,sourceUrl:'https://video.example.cn/course/video.m3u8',format:'hls'}),{status:503});
   }

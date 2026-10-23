@@ -63,7 +63,8 @@ export function vodProvider(env={},options={}) {
         if(offset>=Number(response.TotalCount||0))break;
       }while(true);
       const selected=domains.find(item=>item.Domain?.toLowerCase()===domain);
-      if(!selected || selected.DeployStatus!=='Online' || !selected.HTTPSConfig?.CertExpireTime || Date.parse(selected.HTTPSConfig.CertExpireTime)<=Date.now())throw new VodError(503,'云点播播放域名尚未就绪，需完成 HTTPS 和域名部署');
+      const certificateExpires=Date.parse(selected?.HTTPSConfig?.CertExpireTime||'');
+      if(!selected || selected.DeployStatus!=='Online' || !Number.isFinite(certificateExpires) || certificateExpires<=Date.now())throw new VodError(503,'云点播播放域名尚未就绪，需完成 HTTPS 和域名部署');
       // Every alias must require a signature. Otherwise changing the hostname of
       // a paid URL would bypass entitlement checks through a default VOD domain.
       if(domains.some(item=>item.UrlSignatureAuthPolicy?.Status!=='Enabled' || item.DeployStatus!=='Online'))throw new VodError(503,'云点播存在未启用 Key 防盗链或尚未部署的域名，暂不开放云视频上传和播放');
