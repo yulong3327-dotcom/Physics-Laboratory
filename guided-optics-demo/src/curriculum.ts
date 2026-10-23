@@ -47,6 +47,23 @@ export const stages:Stage[]=[
   {id:'summary',group:'结课总结',title:'凸透镜成像规律总表',cue:'055',resultCue:'055',task:'本课结论已整理好，截图保存这张成像规律总表吧！'},
 ]
 export const groups=[...new Set(stages.map(s=>s.group))]
+export const topicNames:Record<string,string>={
+  '粗测焦距（会聚）':'根据会聚光斑测焦距',
+  '粗测焦距（图像）':'根据图像确定焦距',
+  '三心同高':'调节三心同高',
+  'F 型光源':'用 F 光源观察成像',
+  '成像特点与应用':'成像特点与实际应用',
+  '实像虚像的判断':'实像与虚像的判断',
+  '动态成像':'物像移动的变化规律',
+  '更多探究':'更多拓展实验',
+  '透镜遮挡':'探究透镜遮挡的影响',
+  '眼镜判断':'近视镜与远视镜判断',
+  '水透镜':'水透镜与焦距变化',
+  '无法成像':'无法成像的原因排查',
+  '蜡烛燃烧':'蜡烛燃烧与像的变化',
+  '像物互换':'物像互换与光路可逆',
+  '结课总结':'凸透镜成像规律总结',
+}
 export const STORAGE_KEY='guided-optics.curriculum.v3'
 export const trials=[
   {u:30,v:'15',condition:'u > 2f',range:'f < v < 2f',orientation:'倒立',size:'缩小',nature:'实像'},
