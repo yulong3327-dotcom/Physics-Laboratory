@@ -7,7 +7,12 @@ const legacy=JSON.parse(readFileSync('src/voiceCues.json','utf8')) as {id:string
 const voiceCatalogue=[...cues,...legacy.map(c=>({id:`old-${c.id}`,audio:`voice/${c.id}.wav`}))]
 mkdirSync('artifacts',{recursive:true})
 const index=(id:string)=>stages.findIndex(s=>s.id===id)
-const jump=async(page:Page,id:string)=>page.getByRole('combobox',{name:'选择实验题型'}).selectOption(String(index(id)))
+const jump=async(page:Page,id:string)=>{
+  const step=index(id),stage=stages[step],type=groups.indexOf(stage.group),example=stages.slice(0,step+1).filter(s=>s.group===stage.group).length
+  await page.getByRole('button',{name:'选择实验题型'}).click()
+  await page.getByRole('combobox',{name:'选择题型'}).selectOption(String(type))
+  await page.getByRole('button',{name:`例题 ${example}`,exact:true}).click()
+}
 const slider=async(page:Page,label:string,value:number)=>page.getByRole('slider',{name:`调节${label}`,exact:true}).fill(String(Math.round(value*10)/10))
 const next=async(page:Page)=>page.getByRole('button',{name:'进入下一步',exact:true}).click()
 async function observe(page:Page){
@@ -33,7 +38,7 @@ async function solve(page:Page,id:string){
     case 'alignment':await slider(page,'焰心高度偏移',0);break
     case 'f-source':await page.getByRole('button',{name:'换成 F 光源'}).click();break
     case 'small':case 'equal':case 'large':case 'object-far':case 'object-near':{
-      const u=stages[index(id)].targetU!;await slider(page,'物距 u',u);await slider(page,'光屏距透镜',10*u/(u-10));break
+      const u=stages[index(id)].targetU!;await slider(page,'物距 u',u-.7);await expect(page.getByRole('slider',{name:'调节物距 u'})).toHaveValue(String(u));await slider(page,'光屏距透镜',10*u/(u-10));break
     }
     case 'real':await slider(page,'光屏距透镜',20);break
     case 'virtual':case 'infinity':
@@ -69,7 +74,7 @@ test('thin-lens engine: single lenses, separated spectacles, variable focal leng
   const burned=optics(20,20,false,false,{height:2});expect(burned.imageY).toBeCloseTo(23)
   expect(optics(10,20,false,false).v).toBe(Infinity);expect(optics(30,10,true,false).focused).toBe(true)
   const rows=trials.map(t=>({v:t.v,orientation:t.orientation,size:t.size,nature:t.nature}));expect(wrongCells(rows)).toEqual([]);expect(wrongCells(rows.map((r,i)=>i===0?{...r,v:''}:r))).toContain('0-v')
-  expect(wrongAnswers(stages[index('focus')].question!,[''])).toEqual([0]);expect(wrongAnswers(stages[index('focus')].question!,['10.0'])).toEqual([])
+  expect(wrongAnswers(stages[index('focus')].question!,['光屏中心'])).toEqual([0]);expect(wrongAnswers(stages[index('focus')].question!,['透镜的焦点'])).toEqual([])
   const virtual=selectStep(fresh(),index('virtual'));virtual.throughLens=true;virtual.scanned=[8,34];const reset=selectStep(virtual,index('focus'));expect(reset.throughLens).toBe(false);expect(reset.scanned).toEqual([24,24]);expect(reset.completedSteps).toEqual([]);expect(ready(reset)).toBe(false);expect(physicsFor(reset).v).toBe(10)
 })
 test('55 ordered voice slots preserve matched legacy audio without requesting unavailable MP3',async({page,request})=>{
@@ -85,35 +90,42 @@ test('55 ordered voice slots preserve matched legacy audio without requesting un
   await jump(page,'water-in');await page.getByLabel('更多引导选项').click();await page.getByRole('button',{name:'重播引导'}).click();expect(unavailable).toEqual([])
   await page.reload();await page.getByLabel('更多引导选项').click();await expect(page.getByRole('button',{name:'取消静音'})).toBeVisible();await page.getByRole('button',{name:'关闭引导'}).click();await page.getByRole('button',{name:'打开语音引导'}).click()
 })
+test('topic menu shows only numbered types and examples',async({page})=>{
+  await page.goto('/');await page.getByRole('button',{name:'选择实验题型'}).click()
+  const dialog=page.getByRole('dialog');await expect(dialog.getByRole('combobox',{name:'选择题型'})).toHaveValue('0')
+  await expect(dialog.getByRole('button',{name:'例题 1'})).toBeVisible();await expect(dialog.getByRole('button',{name:'例题 2'})).toBeVisible()
+  await expect(dialog.getByText('粗测焦距（会聚）')).toHaveCount(0)
+  await dialog.getByRole('button',{name:'例题 2'}).click();await expect(page.locator('.step-select strong')).toHaveText(`题型 ${groups.indexOf(stages[index('focus')].group)+1}`)
+})
 test('complete all curriculum activities before answering and export the validated table',async({page})=>{
   test.setTimeout(120000);await page.setViewportSize({width:1440,height:1000})
   const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('/')
   for(const stage of stages){
-    await expect(page.getByRole('combobox',{name:'选择实验题型'})).toHaveValue(String(index(stage.id)))
+    await expect(page.locator('.step-select strong')).toHaveText(`题型 ${groups.indexOf(stage.group)+1}`)
     if(stage.id==='summary')break
     await solve(page,stage.id);await next(page)
   }
-  await page.getByRole('button',{name:'核对记录表'}).click();await expect(page.locator('[aria-invalid=true]')).toHaveCount(20)
-  for(const t of trials){await page.getByRole('textbox',{name:`物距${t.u}厘米时的像距`}).fill(t.v);for(const key of ['orientation','size','nature']as const)await page.getByRole('combobox',{name:`物距${t.u}厘米时的${key==='orientation'?'正倒':key==='size'?'大小':'虚实'}`}).selectOption(t[key])}
-  await page.getByRole('button',{name:'核对记录表'}).click();await expect(page.getByText('记录表核对完成')).toBeVisible()
+  await expect(page.locator('.conclusion-table tbody tr')).toHaveCount(5)
+  await page.getByRole('button',{name:'完成本课'}).click();await expect(page.getByText('整节课程已完成')).toBeVisible()
   const state=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)!),STORAGE_KEY);expect(state.completedSteps).toHaveLength(stages.length)
-  const download=page.waitForEvent('download');await page.getByRole('button',{name:'下载实验记录'}).click();const file=await download;await file.saveAs('artifacts/课程成像规律.csv');expect(readFileSync('artifacts/课程成像规律.csv','utf8')).toContain('u < f,6,15,与物同侧,正立,放大,虚像')
+  const download=page.waitForEvent('download');await page.getByRole('button',{name:'下载规律表'}).click();const file=await download;await file.saveAs('artifacts/课程成像规律.csv');expect(readFileSync('artifacts/课程成像规律.csv','utf8')).toContain('u < f,6,15,与物同侧,正立,放大,虚像')
   await page.screenshot({path:'artifacts/curriculum-complete.png',fullPage:true});expect(errors).toEqual([])
 })
 test('free topic navigation, graph data, wrong answers, saved records and reset are independent',async({page})=>{
   await page.goto('/');await jump(page,'virtual');await slider(page,'光屏距透镜',8);await slider(page,'光屏距透镜',34);await page.getByRole('button',{name:'移开光屏，透过透镜观察'}).click()
-  await jump(page,'focus');await expect(page.getByRole('button',{name:'确认位置，观察结果'})).toBeDisabled();await slider(page,'光屏距透镜',10);await observe(page)
-  await page.getByRole('textbox',{name:'焦距 f / cm'}).fill('0');await page.getByRole('button',{name:'确认答案'}).click();await expect(page.getByRole('alert')).toBeVisible();await expect(page.getByRole('button',{name:'进入下一步'})).toHaveCount(0)
-  await page.getByRole('textbox',{name:'焦距 f / cm'}).fill('10.0');await page.getByRole('button',{name:'确认答案'}).click()
-  await jump(page,'summary');await page.getByRole('textbox',{name:'物距30厘米时的像距'}).fill('15');await page.reload();await expect(page.getByRole('textbox',{name:'物距30厘米时的像距'})).toHaveValue('15')
+  await jump(page,'focus');await expect(page.getByRole('button',{name:'确认位置，观察结果'})).toBeDisabled();await slider(page,'光屏距透镜',10.8);await expect(page.getByRole('slider',{name:'调节光屏距透镜'})).toHaveValue('10');await observe(page)
+  await page.getByRole('combobox',{name:'这个位置'}).selectOption('光屏中心');await page.getByRole('button',{name:'确认答案'}).click();await expect(page.getByRole('alert')).toBeVisible();await expect(page.getByRole('button',{name:'进入下一步'})).toHaveCount(0)
+  await page.getByRole('combobox',{name:'这个位置'}).selectOption('透镜的焦点');await page.getByRole('button',{name:'确认答案'}).click()
+  await jump(page,'summary');await expect(page.locator('.conclusion-table tbody tr')).toHaveCount(5);await page.reload();await expect(page.locator('.conclusion-table tbody tr')).toHaveCount(5)
   const state=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)!),STORAGE_KEY);expect(state.completedSteps).toEqual([index('focus')])
-  await page.getByRole('button',{name:'更多题型',exact:true}).click();await page.getByRole('button',{name:/F 型光源/}).click();await expect(page.getByRole('combobox',{name:'选择实验题型'})).toHaveValue(String(index('f-source')))
-  await page.getByRole('button',{name:'重新开始实验'}).click();await page.getByRole('button',{name:'确认重新开始'}).click();await expect(page.getByRole('combobox',{name:'选择实验题型'})).toHaveValue('0')
+  await jump(page,'f-source');await expect(page.locator('.step-select strong')).toHaveText(`题型 ${groups.indexOf(stages[index('f-source')].group)+1}`)
+  await page.getByRole('button',{name:'重新开始实验'}).click();await page.getByRole('button',{name:'确认重新开始'}).click();await expect(page.locator('.step-select strong')).toHaveText('题型 1')
 })
 for(const [width,height]of [[667,375],[844,390],[390,844]])test(`phone layout and enlarged bench drag at ${width}x${height}`,async({page})=>{
   await page.setViewportSize({width,height});await page.goto('/');await jump(page,'alignment')
+  const fontSize=await page.locator('.control-label').evaluate(el=>parseFloat(getComputedStyle(el).fontSize));expect(fontSize).toBeGreaterThanOrEqual(width>height?14:15)
   if(width>height){const prompt=await page.locator('.mentor-prompt').boundingBox();expect(prompt!.height).toBeLessThanOrEqual(56);const bench=await page.locator('.visual-area').boundingBox();expect(bench!.height).toBeGreaterThan(205)}
-  await slider(page,'焰心高度偏移',0);await expect(page.getByRole('button',{name:'确认位置，观察结果'})).toHaveClass(/guided-action/)
+  await slider(page,'焰心高度偏移',.3);await expect(page.getByRole('slider',{name:'调节焰心高度偏移'})).toHaveValue('0');await expect(page.getByRole('button',{name:'确认位置，观察结果'})).toHaveClass(/guided-action/)
   await page.screenshot({path:`artifacts/curriculum-phone-${width}.png`,fullPage:true})
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
   await slider(page,'焰心高度偏移',1);await expect(page.getByRole('button',{name:'确认位置，观察结果'})).toBeDisabled()
