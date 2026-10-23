@@ -25,6 +25,6 @@ export function MentorPrompt({ guide, detail, tone }: { guide: VoiceGuide; detai
         <button onClick={() => action(guide.toggleMute)}>{guide.muted ? <VolumeX size={16}/> : <Volume2 size={16}/>}<span>{guide.muted ? '取消静音' : '静音'}</span></button>
         <button onClick={() => action(guide.close)}><X size={16}/>关闭引导</button>
       </div></details>
-    </div><p className="mentor-message">{guide.error ? '语音暂时无法加载，文字提示仍可使用。' : detail}</p></div>
+    </div><p className="mentor-message" title={detail}>{guide.error ? '语音暂时无法加载，文字提示仍可使用。' : detail}</p></div>
   </div>
 }

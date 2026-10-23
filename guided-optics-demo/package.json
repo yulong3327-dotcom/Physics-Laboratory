@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "prepare:audio": "node scripts/prepare-curriculum-audio.mjs",
+    "prebuild": "npm run prepare:audio",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "test:e2e": "playwright test",

@@ -1,358 +1,127 @@
 import { expect, test, type Page } from '@playwright/test'
-import { mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { optics } from '../src/model'
-import { trials, wrongCells } from '../src/lesson'
-
-mkdirSync('artifacts', { recursive: true })
-const voiceCues = JSON.parse(readFileSync(new URL('../src/voiceCues.json', import.meta.url), 'utf8')) as { id: string }[]
-
-async function next(page: Page) { await page.getByRole('button', { name: '进入下一步', exact: true }).click() }
-async function observe(page: Page) {
-  await page.getByRole('button', { name: '确认位置，观察结果' }).click()
-  await expect(page.locator('dialog[open]')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '确认判断' })).toHaveCount(0)
-  if (await page.getByTestId('ray-paths').count()) {
-    await expect(page.getByTestId('ray-paths')).toBeVisible()
-    await expect(page.getByTestId('screen-preview')).toBeVisible()
-  }
-}
-async function judge(page: Page, answer: string) {
-  await page.getByRole('button', { name: '已观察，开始判断' }).click()
-  await page.getByRole('button', { name: answer, exact: false }).click()
-  await page.getByRole('button', { name: '确认判断', exact: true }).click()
-  await expect(page.getByRole('button', { name: '进入下一步' })).toBeVisible()
-}
-
-test('thin-lens engine focuses real images and preserves virtual and infinity cases', () => {
-  for (const [u, v, mag] of [[30,15,-.5],[20,20,-1],[15,30,-2],[6,-15,2.5]]) {
-    const result = optics(u, Math.abs(v), false, v < 0)
-    expect(result.v).toBeCloseTo(v)
-    expect(result.magnification).toBeCloseTo(mag)
-    expect(result.segments.length).toBeGreaterThanOrEqual(4)
-    if (v > 0) {
-      expect(result.focused).toBe(true)
-      expect(result.screenHits.length).toBeGreaterThanOrEqual(2)
-      for (const hit of result.screenHits) expect(hit.point.y).toBeCloseTo(25 - 1.4 * mag)
-      expect(optics(u, Math.abs(v) + 4, false, false).blur).toBeGreaterThan(0)
-    } else expect(result.segments.some(s => s.virtual)).toBe(true)
-  }
-  expect(optics(10,20,false,false).v).toBe(Infinity)
-  expect(optics(30,10,true,false).focused).toBe(true)
-  const rows = trials.map(t => ({ v: t.v, orientation: t.orientation, size: t.size, nature: t.nature }))
-  expect(wrongCells(rows)).toEqual([])
-  expect(wrongCells(rows.map((r,i) => i === 0 ? { ...r, v: 'abc' } : r))).toContain('0-v')
-})
-
-test('dialogue guide has automatic speech, no player buttons, and working overflow options', async ({ page, request }) => {
-  expect(voiceCues).toHaveLength(32)
-  for (const cue of voiceCues) {
-    const response = await request.get(`/voice/${cue.id}.wav`)
-    expect(response.status(), cue.id).toBe(200)
-    expect((await response.body()).subarray(0, 4).toString(), cue.id).toBe('RIFF')
-  }
-  await page.goto('/')
-  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '01')
-  await expect(page.locator('.mentor-avatar')).toHaveJSProperty('naturalWidth', 256)
-  await expect(page.getByRole('button', { name: /^(播放语音|暂停语音)$/ })).toHaveCount(0)
-  await expect(page.locator('.mentor-bubble')).toContainText('依次摆放三件器材')
-  await page.getByLabel('更多引导选项').click()
-  await page.getByRole('button', { name: '重播引导' }).click()
-  await expect(page.getByLabel('正在讲解')).toBeVisible()
-  await expect(page.getByRole('button', { name: '重播引导' })).not.toBeVisible()
-  await page.getByLabel('更多引导选项').click()
-  await page.getByRole('button', { name: '静音', exact: true }).click()
-  await expect(page.getByLabel('正在讲解')).toHaveCount(0)
-  await page.getByLabel('更多引导选项').click()
-  await expect(page.getByRole('button', { name: '取消静音' })).toBeVisible()
-  await page.getByRole('button', { name: '关闭引导' }).click()
-  await page.getByRole('button', { name: '打开语音引导' }).click()
-  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '01')
-  await page.reload()
-  await page.getByLabel('更多引导选项').click()
-  await expect(page.getByRole('button', { name: '取消静音' })).toBeVisible()
-  await page.getByLabel('更多引导选项').press('Escape')
-  await expect(page.locator('.mentor-controls')).not.toHaveAttribute('open')
-})
-
-test('student sees live results before judging and completes the sequential course', async ({ page }) => {
-  const errors: string[] = []
-  page.on('pageerror', error => errors.push(error.message))
-  await page.setViewportSize({ width: 1440, height: 1050 })
-  await page.goto('/')
-  await expect(page.getByText('按顺序摆放蜡烛、凸透镜与光屏。')).toBeVisible()
-  for (const name of ['放置蜡烛','放置凸透镜','放置光屏']) await page.getByRole('button', { name, exact: true }).click()
-  await next(page)
-  await expect(page.getByText('怎样调整器材，才能让烛焰的像落在光屏中央？')).toBeVisible()
-  await page.getByRole('slider', { name: '调节火焰高度' }).fill('0')
-  await observe(page)
-  await judge(page, '三者中心大致处于同一高度')
-  await next(page)
-  await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('10')
-  await observe(page)
-  await judge(page, '10 cm')
-  await next(page)
-
-  for (let i = 0; i < trials.length; i++) {
-    const t = trials[i]
-    await expect(page.getByRole('slider', { name: '调节光屏距透镜的距离' })).toHaveCount(0)
-    await page.getByRole('slider', { name: '调节蜡烛与透镜的距离' }).fill(String(t.u))
-    await page.getByRole('button', { name: '确认物距' }).click()
-    if (i < 3) {
-      const before = await page.getByTestId('screen-preview').getAttribute('data-blur')
-      await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill(t.v)
-      expect(Number(await page.getByTestId('screen-preview').getAttribute('data-blur'))).toBe(0)
-      expect(Number(before)).toBeGreaterThan(0)
-    } else {
-      await expect(page.getByRole('button', { name: i === 4 ? '移开光屏，透过透镜观察' : '确认位置，观察结果' })).toBeDisabled()
-      await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('8')
-      await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('34')
-      if (i === 4) await page.getByRole('button', { name: '移开光屏，透过透镜观察' }).click()
-    }
-    await observe(page)
-    if (i === 0) {
-      await page.screenshot({ path: 'artifacts/desktop-observation.png', fullPage: true })
-      await page.getByRole('button', { name: '已观察，开始判断' }).click()
-      await page.getByRole('button', { name: /正立、放大的虚像/ }).click()
-      await page.getByRole('button', { name: '确认判断' }).click()
-      await expect(page.getByRole('alert')).toBeVisible()
-      await expect(page.getByRole('button', { name: '进入下一步' })).toHaveCount(0)
-      await page.getByRole('button', { name: '再观察一下' }).click()
-      await page.reload()
-      await expect(page.getByRole('button', { name: '已观察，开始判断' })).toBeVisible()
-    }
-    if (i === 4) await page.screenshot({ path: 'artifacts/virtual-observation.png', fullPage: true })
-    await judge(page, t.choices[t.answer])
-    await next(page)
-  }
-  await page.getByRole('button', { name: '核对并完成实验' }).click()
-  await expect(page.getByRole('alert')).toContainText('20')
-  for (const t of trials) {
-    await page.getByRole('textbox', { name: `物距${t.u}厘米时的像距` }).fill(t.v)
-    await page.getByRole('combobox', { name: `物距${t.u}厘米时的正倒` }).selectOption(t.orientation)
-    await page.getByRole('combobox', { name: `物距${t.u}厘米时的大小` }).selectOption(t.size)
-    await page.getByRole('combobox', { name: `物距${t.u}厘米时的虚实` }).selectOption(t.nature)
-  }
-  await page.getByRole('button', { name: '核对并完成实验' }).click()
-  await expect(page.getByText('实验结论')).toBeVisible()
-  const download = page.waitForEvent('download')
-  await page.getByRole('button', { name: '下载实验表格' }).click()
-  const file = await download
-  await file.saveAs('artifacts/成像规律.csv')
-  expect(file.suggestedFilename()).toBe('凸透镜成像规律实验记录.csv')
-  await page.getByRole('tab', { name: '回看光路' }).click()
-  await page.getByRole('tab', { name: /u < f/ }).click()
-  await expect(page.getByText('透过透镜观察', { exact: true }).first()).toBeVisible()
-  await page.screenshot({ path: 'artifacts/completed.png', fullPage: true })
-  expect(errors).toEqual([])
-})
-
-test('free navigation prepares prerequisites, resets trial state, and preserves records', async ({ page }) => {
-  await page.setViewportSize({ width: 844, height: 390 })
-  await page.goto('/')
-  const selector = page.getByRole('combobox', { name: '选择实验题型' })
-  await selector.selectOption('7')
-  await expect(page.getByTestId('candle')).toBeVisible()
-  await expect(page.getByTestId('screen')).toBeVisible()
-  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '20')
-  await expect(page.locator('.step-tick.done')).toHaveCount(0)
-  await page.getByRole('slider', { name: '调节蜡烛与透镜的距离' }).fill('6')
-  await expect(page.getByRole('button', { name: '确认物距' })).toHaveClass(/guided-action/)
-  await page.getByRole('button', { name: '确认物距' }).click()
-  const view = page.getByRole('button', { name: '移开光屏，透过透镜观察' })
-  await expect(view).toBeDisabled()
-  await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('8')
-  await expect(view).not.toHaveClass(/guided-action/)
-  await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('34')
-  await expect(view).toHaveClass(/guided-action/)
-  await view.click()
-  await expect(page.getByRole('button', { name: '确认位置，观察结果' })).toHaveClass(/guided-action/)
-  await selector.selectOption('2')
-  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '07')
-  await expect(page.getByRole('slider', { name: '调节光屏距透镜的距离' })).toHaveValue('24')
-  await expect(page.getByRole('button', { name: '确认位置，观察结果' })).toBeDisabled()
-  await expect(page.getByText('透镜观察窗', { exact: true })).toHaveCount(0)
-  await selector.selectOption('8')
-  await page.getByRole('textbox', { name: '物距30厘米时的像距' }).fill('15')
-  await page.getByRole('combobox', { name: '物距30厘米时的正倒' }).selectOption('倒立')
-  await page.getByRole('tab', { name: '回看光路' }).click()
-  await selector.selectOption('3')
-  await expect(page.getByRole('slider', { name: '调节蜡烛与透镜的距离' })).toBeEnabled()
-  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '10')
-  await page.getByRole('slider', { name: '调节蜡烛与透镜的距离' }).fill('29')
-  await selector.selectOption('8')
-  await expect(page.getByRole('textbox', { name: '物距30厘米时的像距' })).toHaveValue('15')
-  await expect(page.getByRole('combobox', { name: '物距30厘米时的正倒' })).toHaveValue('倒立')
-  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '30')
-  await page.reload()
-  await expect(selector).toHaveValue('8')
-  await expect(page.getByRole('textbox', { name: '物距30厘米时的像距' })).toHaveValue('15')
-  await page.setViewportSize({ width: 1440, height: 1050 })
-  await page.getByRole('button', { name: '跳转到调节三心同高', exact: true }).click()
-  await expect(selector).toHaveValue('1')
-  await page.getByRole('slider', { name: '调节火焰高度' }).fill('0')
-  await observe(page)
-  await judge(page, '三者中心大致处于同一高度')
-  await expect(page.locator('.step-tick.done')).toHaveCount(1)
-  await expect(page.getByRole('button', { name: '跳转到摆放实验器材', exact: true })).not.toHaveClass(/done/)
-})
-
-for (const [width, height] of [[844,390], [667,375], [390,844], [1440,1050]]) {
-  test(`correct adjustments highlight the visible next action at ${width}x${height}`, async ({ page }) => {
-    await page.setViewportSize({ width, height })
-    await page.goto('/')
-    await page.getByRole('combobox', { name: '选择实验题型' }).selectOption('1')
-    const observeButton = page.getByRole('button', { name: '确认位置，观察结果' })
-    const slider = page.getByRole('slider', { name: '调节火焰高度' })
-    await expect(observeButton).toBeDisabled()
-    await expect(page.locator('.guided-action')).toHaveCount(0)
-    await slider.fill('0')
-    await expect(observeButton).toHaveClass(/guided-action/)
-    expect(await observeButton.evaluate(el => getComputedStyle(el, '::after').animationName)).toBe('next-pulse')
-    await slider.fill('1')
-    await expect(observeButton).toBeDisabled()
-    await expect(page.locator('.guided-action')).toHaveCount(0)
-    await slider.fill('0')
-    if (width > height) {
-      const bounds = await observeButton.boundingBox()
-      expect(bounds!.y + bounds!.height + 4).toBeLessThanOrEqual(height)
-      expect(bounds!.height).toBeGreaterThanOrEqual(36)
-      const sliderBounds = await slider.boundingBox()
-      const contentBounds = await page.locator('.panel-content').boundingBox()
-      expect(sliderBounds!.y).toBeGreaterThanOrEqual(contentBounds!.y)
-      expect(sliderBounds!.y + sliderBounds!.height).toBeLessThanOrEqual(contentBounds!.y + contentBounds!.height)
-    }
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
-    await page.screenshot({ path: `artifacts/redesign-ready-${width}.png`, fullPage: true })
-    await observe(page)
-    await expect(page.getByRole('button', { name: '已观察，开始判断' })).toHaveClass(/guided-action/)
-    await page.getByRole('button', { name: '已观察，开始判断' }).click()
-    await expect(page.locator('.guided-action')).toHaveCount(0)
-    await page.getByRole('button', { name: '三者中心大致处于同一高度', exact: false }).click()
-    await page.getByRole('button', { name: '确认判断', exact: true }).click()
-    await expect(page.getByRole('button', { name: '进入下一步' })).toHaveClass(/guided-action/)
-    await next(page)
-    await expect(page.locator('.guided-action')).toHaveCount(0)
-    await page.getByRole('combobox', { name: '选择实验题型' }).selectOption('3')
-    const distance = page.getByRole('slider', { name: '调节蜡烛与透镜的距离' })
-    await distance.fill('30')
-    await expect(page.getByRole('button', { name: '确认物距' })).toHaveClass(/guided-action/)
-    await distance.fill('29.5')
-    await expect(page.getByRole('button', { name: '确认物距' })).toBeDisabled()
-    await expect(page.locator('.guided-action')).toHaveCount(0)
-    await distance.fill('30')
-    await page.getByRole('button', { name: '确认物距' }).click()
-    await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('15')
-    await expect(observeButton).toHaveClass(/guided-action/)
-    await page.screenshot({ path: `artifacts/redesign-image-${width}.png`, fullPage: true })
-    await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('16')
-    await expect(observeButton).not.toHaveClass(/guided-action/)
-    await page.emulateMedia({ reducedMotion: 'reduce' })
-    await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('15')
-    expect(await observeButton.evaluate(el => getComputedStyle(el, '::after').animationName)).toBe('none')
-  })
-}
-
-test('mobile remains within viewport and has live screen feedback', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/')
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
-  await page.screenshot({ path: 'artifacts/mobile.png', fullPage: true })
-  await page.getByRole('button', { name: '放置蜡烛' }).click()
-  await page.getByRole('button', { name: '放置凸透镜' }).click()
-  await page.getByRole('button', { name: '放置光屏' }).click()
-  await next(page)
-  await page.getByRole('slider', { name: '调节火焰高度' }).fill('0')
-  await observe(page)
-  await judge(page, '三者中心大致处于同一高度')
-  await next(page)
-  await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('10')
-  await expect(page.getByTestId('screen-preview')).toHaveAttribute('data-blur','0.00')
-  await page.screenshot({ path: 'artifacts/mobile-simulation.png', fullPage: true })
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
-})
-
-test('expanded phone bench supports dragging and restores the next action', async ({ page }) => {
-  await page.setViewportSize({ width: 667, height: 375 })
-  await page.goto('/')
-  await page.getByRole('combobox', { name: '选择实验题型' }).selectOption('3')
-  await page.getByRole('button', { name: '放大实验台' }).click()
-  const bench = page.getByRole('dialog', { name: '凸透镜成像实验台' })
-  const bounds = await bench.boundingBox()
-  expect(bounds!.width).toBeGreaterThan(650)
-  expect(bounds!.height).toBeGreaterThan(350)
-  const positions = await page.locator('.diagram-wrap svg').evaluate(el => {
-    const svg = el as SVGSVGElement
-    const location = (x: number) => {
-      const point = svg.createSVGPoint(); point.x = x; point.y = 250
-      const transformed = point.matrixTransform(svg.getScreenCTM()!)
-      return { x: transformed.x, y: transformed.y }
-    }
-    return { from: location(200), to: location(160) }
-  })
-  await page.mouse.move(positions.from.x, positions.from.y)
-  await page.mouse.down()
-  await page.mouse.move(positions.to.x, positions.to.y, { steps: 10 })
-  await page.mouse.up()
-  await page.screenshot({ path: 'artifacts/expanded-phone-bench.png' })
-  await page.getByRole('button', { name: '收起实验台' }).press('Escape')
-  await expect(bench).toHaveCount(0)
-  await expect(page.getByRole('slider', { name: '调节蜡烛与透镜的距离' })).toHaveValue('30')
-  await expect(page.getByRole('button', { name: '确认物距' })).toHaveClass(/guided-action/)
-  await page.getByRole('button', { name: '放大实验台' }).click()
-  await page.getByRole('button', { name: '收起实验台' }).click()
-  await expect(page.getByRole('button', { name: '确认物距' })).toBeVisible()
-})
-
-test('landscape layout, drag placement, and contextual hints', async ({ page }) => {
-  await page.setViewportSize({ width: 844, height: 390 })
-  await page.goto('/')
-  const tray = page.getByRole('button', { name: '拖拽蜡烛到指定位置' })
-  const position = await page.locator('.diagram-wrap').evaluate(el => {
-    const svg = el.querySelector('svg')!
-    const point = svg.createSVGPoint()
-    point.x = 160; point.y = 250
-    const location = point.matrixTransform(svg.getScreenCTM()!)
-    const target = el.querySelector('.place-target')!.getBoundingClientRect()
-    return { x: location.x, y: location.y, tx: target.x + target.width / 2, ty: target.y + target.height / 2 }
-  })
-  expect(position.tx).toBeCloseTo(position.x, 1)
-  expect(position.ty).toBeCloseTo(position.y, 1)
-  await tray.dragTo(page.getByRole('button', { name: '重新开始实验' }))
-  await expect(page.getByRole('status')).toContainText('还没放到圆形目标处')
-  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '02')
-  await expect(page.getByRole('button', { name: '放置蜡烛' })).toBeVisible()
-  await tray.dragTo(page.getByRole('button', { name: '放置蜡烛' }))
-  await expect(page.getByTestId('candle')).toBeVisible()
-  for (const name of ['放置凸透镜', '放置光屏']) await page.getByRole('button', { name }).click()
-  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '03')
-  await next(page)
-  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '04')
-  await page.getByRole('slider', { name: '调节火焰高度' }).fill('2')
-  await expect(page.getByRole('status')).toContainText('偏低')
-  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '05')
-  await page.getByRole('slider', { name: '调节火焰高度' }).fill('0')
-  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '06')
-  await observe(page)
-  await judge(page, '三者中心大致处于同一高度')
-  await next(page)
-  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '07')
-  await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('30')
-  await expect(page.getByRole('status')).toContainText('太远')
-  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '08')
-  await page.getByRole('slider', { name: '调节光屏距透镜的距离' }).fill('10')
-  await expect(page.getByRole('status')).toContainText('最小')
-  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue', '09')
+import { fresh, groups, physicsFor, ready, selectStep, stages, STORAGE_KEY, trials, wrongAnswers, wrongCells } from '../src/curriculum'
+const cues=JSON.parse(readFileSync('src/curriculumVoice.json','utf8')) as {id:string;audio:string|null}[]
+const legacy=JSON.parse(readFileSync('src/voiceCues.json','utf8')) as {id:string}[]
+const voiceCatalogue=[...cues,...legacy.map(c=>({id:`old-${c.id}`,audio:`voice/${c.id}.wav`}))]
+mkdirSync('artifacts',{recursive:true})
+const index=(id:string)=>stages.findIndex(s=>s.id===id)
+const jump=async(page:Page,id:string)=>page.getByRole('combobox',{name:'选择实验题型'}).selectOption(String(index(id)))
+const slider=async(page:Page,label:string,value:number)=>page.getByRole('slider',{name:`调节${label}`,exact:true}).fill(String(Math.round(value*10)/10))
+const next=async(page:Page)=>page.getByRole('button',{name:'进入下一步',exact:true}).click()
+async function observe(page:Page){
+  await page.getByRole('button',{name:'确认位置，观察结果'}).click()
+  await expect(page.getByRole('button',{name:'确认答案',exact:true})).toHaveCount(0)
   await expect(page.getByTestId('screen-preview')).toBeVisible()
-  const sizes = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, width: innerWidth, preview: document.querySelector('.screen-status')!.getBoundingClientRect().width, bench: document.querySelector('.visual-area')!.getBoundingClientRect().width, questionTop: document.querySelector('.question-line')!.getBoundingClientRect().top, panelBottom: document.querySelector('.action-panel')!.getBoundingClientRect().bottom }))
-  expect(sizes.scrollWidth).toBeLessThanOrEqual(sizes.width)
-  expect(sizes.preview).toBeGreaterThan(250)
-  expect(sizes.bench).toBeGreaterThan(sizes.preview)
-  expect(sizes.questionTop).toBeGreaterThanOrEqual(0)
-  expect(sizes.panelBottom).toBeLessThanOrEqual(390)
-  await page.screenshot({ path: 'artifacts/landscape-844.png' })
-  await page.setViewportSize({ width: 667, height: 375 })
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(667)
-  expect(await page.locator('.action-panel').evaluate(el => el.getBoundingClientRect().bottom)).toBeLessThanOrEqual(375)
-  expect(await page.getByRole('button', { name: '确认位置，观察结果' }).evaluate(el => el.getBoundingClientRect().bottom)).toBeLessThanOrEqual(375)
-  await page.screenshot({ path: 'artifacts/landscape-667.png' })
+  await page.getByRole('button',{name:'已观察，开始答题'}).click()
+}
+async function answer(page:Page,id:string){
+  const question=stages[index(id)].question!
+  for(const f of question.fields){if(f.options)await page.getByRole('combobox',{name:f.label,exact:true}).selectOption(f.answer);else await page.getByRole('textbox',{name:f.label,exact:true}).fill(f.answer)}
+  await page.getByRole('button',{name:'确认答案',exact:true}).click()
+  await expect(page.getByRole('button',{name:'进入下一步'})).toHaveClass(/guided-action/)
+}
+async function solve(page:Page,id:string){
+  switch(id){
+    case 'setup':for(const name of ['平行光源','凸透镜','光屏'])await page.getByRole('button',{name:`放置${name}`,exact:true}).click();return
+    case 'focus':await slider(page,'光屏距透镜',10);break
+    case 'graph':
+      await page.getByRole('button',{name:'安装蜡烛'}).click()
+      for(const [u,v]of [[15,30],[20,20],[30,15]]){await slider(page,'物距 u',u);await slider(page,'光屏距透镜',v);await page.getByRole('button',{name:/记录此组数据/}).click()}
+      await expect(page.getByTestId('graph-point')).toHaveCount(3);break
+    case 'alignment':await slider(page,'焰心高度偏移',0);break
+    case 'f-source':await page.getByRole('button',{name:'换成 F 光源'}).click();break
+    case 'small':case 'equal':case 'large':case 'object-far':case 'object-near':{
+      const u=stages[index(id)].targetU!;await slider(page,'物距 u',u);await slider(page,'光屏距透镜',10*u/(u-10));break
+    }
+    case 'real':await slider(page,'光屏距透镜',20);break
+    case 'virtual':case 'infinity':
+      await slider(page,'光屏距透镜',8);await slider(page,'光屏距透镜',34)
+      if(id==='virtual')await page.getByRole('button',{name:'移开光屏，透过透镜观察'}).click();break
+    case 'screen-far':await slider(page,'光屏距透镜',30);await slider(page,'物距 u',15);break
+    case 'screen-near':await slider(page,'光屏距透镜',15);await slider(page,'物距 u',30);break
+    case 'more':return
+    case 'cover':await slider(page,'透镜遮挡比例',50);break
+    case 'near-glasses':case 'far-glasses':{
+      const kind=id==='near-glasses'?'near':'far';await page.getByRole('button',{name:kind==='near'?'近视镜':'远视镜',exact:true}).click()
+      await slider(page,'光屏距透镜',optics(30,15,false,false,{glasses:kind,height:0}).v);break
+    }
+    case 'water-in':await page.getByRole('button',{name:'安装水透镜'}).click();await page.getByRole('button',{name:'注水',exact:true}).click();await slider(page,'光屏距透镜',8*30/(30-8));break
+    case 'water-out':await page.getByRole('button',{name:'抽水',exact:true}).click();await slider(page,'光屏距透镜',20);break
+    case 'causes':for(const name of ['三心不同高','物体在焦点内','光具座太短'])await page.getByRole('button',{name,exact:false}).click();break
+    case 'burn':await page.getByRole('button',{name:'点燃蜡烛',exact:true}).click();await page.getByRole('button',{name:'继续燃烧',exact:true}).click();await page.getByRole('button',{name:'继续燃烧',exact:true}).click();break
+    case 'swap':await page.getByRole('button',{name:'互换蜡烛与光屏'}).click();break
+  }
+  await observe(page);await answer(page,id)
+}
+test('thin-lens engine: single lenses, separated spectacles, variable focal length, stops and reversibility',()=>{
+  for(const [u,v,m]of [[30,15,-.5],[20,20,-1],[15,30,-2],[6,-15,2.5]]){
+    const p=optics(u,Math.abs(v),false,v<0,{height:0});expect(p.v).toBeCloseTo(v);expect(p.magnification).toBeCloseTo(m)
+    if(v>0){expect(p.focused).toBe(true);for(const hit of p.screenHits)expect(hit.point.y).toBeCloseTo(25)}else expect(p.segments.some(s=>s.virtual)).toBe(true)
+  }
+  const near=optics(30,15,false,false,{glasses:'near',height:0}),far=optics(30,15,false,false,{glasses:'far',height:0})
+  expect(near.v).toBeGreaterThan(15);expect(far.v).toBeLessThan(15)
+  for(const kind of ['near','far']as const){const v=optics(30,15,false,false,{glasses:kind,height:0}).v,p=optics(30,v,false,false,{glasses:kind,height:0});expect(p.focused).toBe(true);expect(p.screenHits.length).toBeGreaterThan(1);for(const hit of p.screenHits)expect(hit.point.y).toBeCloseTo(25)}
+  expect(optics(30,15,false,false,{focal:8}).v).toBeLessThan(15);expect(optics(30,20,false,false,{focal:12}).focused).toBe(true)
+  const blocked=optics(30,15,false,false,{cover:50,height:0});expect(blocked.v).toBeCloseTo(15);expect(blocked.magnification).toBeCloseTo(-.5);expect(blocked.brightness).toBe(.5);expect(blocked.screenHits.length).toBeGreaterThan(0)
+  const reverse=optics(15,30,false,false,{swapped:true,height:0});expect(reverse.focused).toBe(true);expect(reverse.magnification).toBeCloseTo(-2);for(const hit of reverse.screenHits){expect(hit.point.x).toBeCloseTo(16);expect(hit.point.y).toBeCloseTo(25)}
+  const burned=optics(20,20,false,false,{height:2});expect(burned.imageY).toBeCloseTo(23)
+  expect(optics(10,20,false,false).v).toBe(Infinity);expect(optics(30,10,true,false).focused).toBe(true)
+  const rows=trials.map(t=>({v:t.v,orientation:t.orientation,size:t.size,nature:t.nature}));expect(wrongCells(rows)).toEqual([]);expect(wrongCells(rows.map((r,i)=>i===0?{...r,v:''}:r))).toContain('0-v')
+  expect(wrongAnswers(stages[index('focus')].question!,[''])).toEqual([0]);expect(wrongAnswers(stages[index('focus')].question!,['10.0'])).toEqual([])
+  const virtual=selectStep(fresh(),index('virtual'));virtual.throughLens=true;virtual.scanned=[8,34];const reset=selectStep(virtual,index('focus'));expect(reset.throughLens).toBe(false);expect(reset.scanned).toEqual([24,24]);expect(reset.completedSteps).toEqual([]);expect(ready(reset)).toBe(false);expect(physicsFor(reset).v).toBe(10)
+})
+test('55 ordered voice slots preserve matched legacy audio without requesting unavailable MP3',async({page,request})=>{
+  expect(groups).toHaveLength(15);expect(stages).toHaveLength(25)
+  const cues=voiceCatalogue.filter(c=>!c.id.startsWith('old-'));expect(cues).toHaveLength(55)
+  expect(cues.map(c=>c.id)).toEqual(Array.from({length:55},(_,i)=>String(i+1).padStart(3,'0')))
+  for(const cue of voiceCatalogue){if(cue.audio){expect(existsSync(`public/${cue.audio}`),cue.id).toBe(true);const r=await request.get(cue.audio);expect(r.status()).toBe(200)}}
+  const unavailable:string[]=[];page.on('request',r=>{if(r.url().includes('/voice/curriculum/'))unavailable.push(r.url())})
+  await page.goto('/');await expect(page.locator('.mentor-avatar')).toHaveJSProperty('naturalWidth',256)
+  await expect(page.getByRole('button',{name:/^(播放语音|暂停语音)$/})).toHaveCount(0)
+  await jump(page,'focus');await page.getByLabel('更多引导选项').click();await page.getByRole('button',{name:'重播引导'}).click();await expect(page.getByLabel('正在讲解')).toBeVisible()
+  await page.getByLabel('更多引导选项').click();await page.getByRole('button',{name:'静音',exact:true}).click();await expect(page.getByLabel('正在讲解')).toHaveCount(0)
+  await jump(page,'water-in');await page.getByLabel('更多引导选项').click();await page.getByRole('button',{name:'重播引导'}).click();expect(unavailable).toEqual([])
+  await page.reload();await page.getByLabel('更多引导选项').click();await expect(page.getByRole('button',{name:'取消静音'})).toBeVisible();await page.getByRole('button',{name:'关闭引导'}).click();await page.getByRole('button',{name:'打开语音引导'}).click()
+})
+test('complete all curriculum activities before answering and export the validated table',async({page})=>{
+  test.setTimeout(120000);await page.setViewportSize({width:1440,height:1000})
+  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('/')
+  for(const stage of stages){
+    await expect(page.getByRole('combobox',{name:'选择实验题型'})).toHaveValue(String(index(stage.id)))
+    if(stage.id==='summary')break
+    await solve(page,stage.id);await next(page)
+  }
+  await page.getByRole('button',{name:'核对记录表'}).click();await expect(page.locator('[aria-invalid=true]')).toHaveCount(20)
+  for(const t of trials){await page.getByRole('textbox',{name:`物距${t.u}厘米时的像距`}).fill(t.v);for(const key of ['orientation','size','nature']as const)await page.getByRole('combobox',{name:`物距${t.u}厘米时的${key==='orientation'?'正倒':key==='size'?'大小':'虚实'}`}).selectOption(t[key])}
+  await page.getByRole('button',{name:'核对记录表'}).click();await expect(page.getByText('记录表核对完成')).toBeVisible()
+  const state=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)!),STORAGE_KEY);expect(state.completedSteps).toHaveLength(stages.length)
+  const download=page.waitForEvent('download');await page.getByRole('button',{name:'下载实验记录'}).click();const file=await download;await file.saveAs('artifacts/课程成像规律.csv');expect(readFileSync('artifacts/课程成像规律.csv','utf8')).toContain('u < f,6,15,与物同侧,正立,放大,虚像')
+  await page.screenshot({path:'artifacts/curriculum-complete.png',fullPage:true});expect(errors).toEqual([])
+})
+test('free topic navigation, graph data, wrong answers, saved records and reset are independent',async({page})=>{
+  await page.goto('/');await jump(page,'virtual');await slider(page,'光屏距透镜',8);await slider(page,'光屏距透镜',34);await page.getByRole('button',{name:'移开光屏，透过透镜观察'}).click()
+  await jump(page,'focus');await expect(page.getByRole('button',{name:'确认位置，观察结果'})).toBeDisabled();await slider(page,'光屏距透镜',10);await observe(page)
+  await page.getByRole('textbox',{name:'焦距 f / cm'}).fill('0');await page.getByRole('button',{name:'确认答案'}).click();await expect(page.getByRole('alert')).toBeVisible();await expect(page.getByRole('button',{name:'进入下一步'})).toHaveCount(0)
+  await page.getByRole('textbox',{name:'焦距 f / cm'}).fill('10.0');await page.getByRole('button',{name:'确认答案'}).click()
+  await jump(page,'summary');await page.getByRole('textbox',{name:'物距30厘米时的像距'}).fill('15');await page.reload();await expect(page.getByRole('textbox',{name:'物距30厘米时的像距'})).toHaveValue('15')
+  const state=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)!),STORAGE_KEY);expect(state.completedSteps).toEqual([index('focus')])
+  await page.getByRole('button',{name:'更多题型',exact:true}).click();await page.getByRole('button',{name:/F 型光源/}).click();await expect(page.getByRole('combobox',{name:'选择实验题型'})).toHaveValue(String(index('f-source')))
+  await page.getByRole('button',{name:'重新开始实验'}).click();await page.getByRole('button',{name:'确认重新开始'}).click();await expect(page.getByRole('combobox',{name:'选择实验题型'})).toHaveValue('0')
+})
+for(const [width,height]of [[667,375],[844,390],[390,844]])test(`phone layout and enlarged bench drag at ${width}x${height}`,async({page})=>{
+  await page.setViewportSize({width,height});await page.goto('/');await jump(page,'alignment')
+  if(width>height){const prompt=await page.locator('.mentor-prompt').boundingBox();expect(prompt!.height).toBeLessThanOrEqual(56);const bench=await page.locator('.visual-area').boundingBox();expect(bench!.height).toBeGreaterThan(205)}
+  await slider(page,'焰心高度偏移',0);await expect(page.getByRole('button',{name:'确认位置，观察结果'})).toHaveClass(/guided-action/)
+  await page.screenshot({path:`artifacts/curriculum-phone-${width}.png`,fullPage:true})
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+  await slider(page,'焰心高度偏移',1);await expect(page.getByRole('button',{name:'确认位置，观察结果'})).toBeDisabled()
+  await jump(page,'small');await page.getByRole('button',{name:'放大实验台'}).click()
+  const bench=page.getByRole('dialog',{name:'凸透镜成像实验台'}),b=await bench.boundingBox();expect(b!.width).toBeGreaterThan(width-16);expect(b!.height).toBeGreaterThan(height-16)
+  const locations=await page.locator('.diagram-wrap svg').evaluate(el=>{const svg=el as SVGSVGElement,point=(x:number)=>{const p=svg.createSVGPoint();p.x=x;p.y=250;const t=p.matrixTransform(svg.getScreenCTM()!);return{x:t.x,y:t.y}};return{from:point(200),to:point(160)}})
+  await page.mouse.move(locations.from.x,locations.from.y);await page.mouse.down();await page.mouse.move(locations.to.x,locations.to.y,{steps:12});await page.mouse.up()
+  await page.screenshot({path:`artifacts/curriculum-expanded-${width}.png`})
+  await page.getByRole('button',{name:'收起实验台'}).press('Escape');await expect(bench).toHaveCount(0);await expect(page.getByRole('slider',{name:'调节物距 u'})).toHaveValue('30')
+  for(const id of ['graph','cover','near-glasses','water-in','causes','burn','swap']){await jump(page,id);expect(await page.evaluate(()=>document.documentElement.scrollWidth),id).toBeLessThanOrEqual(width)}
 })

@@ -1,0 +1,201 @@
+@font-face { font-family: "Lab Round"; src: url('/fonts/lab-round.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Lab Round"; src: url('/fonts/lab-round-medium.woff2') format('woff2'); font-weight: 500 800; font-display: swap; }
+@font-face { font-family: "Lab Display"; src: url('/fonts/lab-display.woff2') format('woff2'); font-weight: 400 900; font-display: swap; }
+@font-face { font-family: "Lab Text"; src: url('/fonts/lab-text.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Lab Math"; src: url('/fonts/lab-math.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+:root {
+  font-family: "Lab Round", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif;
+  color: #292442;
+  background: #f3f2fb;
+  --surface: #ffffff;
+  --ink-muted: #79758a;
+  --accent: #6a4df5;
+  --raised: 0 3px 14px #3530520a;
+  --inset: inset 0 1px 4px #55459b12;
+}
+body { background: #f3f2fb; }
+.curriculum-app { background: #6548ed; }
+.curriculum-app .step-select > span, .curriculum-app .group-name { color: #f0eaff; }
+.curriculum-app .progress-caption { color: #ddd4ff; }
+.topbar { color: white; background: #6548ed; border: 0; box-shadow: none; }
+.brand strong { font-family: "Lab Display", "Lab Round", sans-serif; font-weight: 700; font-size: 19px; }
+.brand-mark { border: 0; border-radius: 10px; background: #ffffff20; color: white; box-shadow: none; }
+.course-title { color: #ffffffd6; border-color: #ffffff40; }
+.save-note { color: #ffffffbd; }
+.icon-button { background: #ffffff18; color: white; border: 1px solid #ffffff25; box-shadow: none; }
+.icon-button:hover { background: #ffffff2d; color: white; }
+.icon-button:active { background: #ffffff40; }
+.step-select > span, .group-name { color: #756a9b; }
+.step-select select { background: white; border-color: #e3def6; border-radius: 22px; box-shadow: 0 2px 6px #51498d08; color: #4a3979; }
+.progress-caption { color: #80769b; }
+.question-line { border: 0; border-radius: 10px; background: #ebe7ff; box-shadow: none; color: #35265a; }
+.question-line h1 { font-weight: 600; }
+.type-tag { background: #6a4df5; color: white; border-radius: 6px; padding: 4px 7px; font-size: 12px; }
+.visual-area, .screen-status, .action-panel, .record-section { border: 1px solid #e8e4f4; border-radius: 14px; box-shadow: var(--raised); background: white; }
+.visual-toolbar { background: #faf9ff; border-color: #ebe7f6; color: #504773; }
+.visual-title { font-weight: 600; }
+.live-dot { background: #3bbca7; box-shadow: 0 0 0 3px #3bbca715; }
+.scale-label { color: #9187a5; }
+.bench-expand { border-radius: 7px; background: #ede8ff; color: #7257d7; }
+.bench-expand:hover { background: #e0d6ff; color: #5732d2; }
+.visual-footer { background: #faf9ff; border-color: #ebe7f6; color: #8b80a0; }
+.screen-status { background: #f3fbfc; border-color: #ddecf0; }
+.screen-heading { border-color: #dceef0; color: #356f7b; }
+.screen-heading > span, .view-caption { color: #6f929b; }
+.focus-reading { color: #35738a; }
+.focus-reading strong, .control-label strong, .ruler-readings, .sample-list, .measure-lines text, .focus-label { font-family: "Lab Text", "Lab Math", "Lab Round", serif; }
+.axis-label, .diagram-label, .ghost-label, .ruler-text { font-family: "Lab Round", "Lab Math", sans-serif; }
+.panel-index { border-color: #efeaf8; color: #5e4c85; background: #fcfbff; }
+.panel-index strong { color: #aaa0bb; }
+.phase-indicators .current { color: #7050e5; }
+.phase-indicators .current::before { background: #785bf6; }
+.phase-indicators .passed { color: #2a9c87; }
+.phase-indicators .passed::before { background: #36af9b; }
+.panel-content { scrollbar-color: #d3c9ef transparent; }
+.panel-content p { color: #615b70; }
+.panel-content .action-prompt { color: #665a80; }
+.control-label { color: #5e5276; }
+.control-label strong { color: #6a4df5; font-size: 16px; font-weight: 600; }
+.aim-slider::-webkit-slider-runnable-track { height: 8px; border-radius: 6px; background: #ece8fa; box-shadow: inset 0 1px 3px #7d65b51c; }
+.aim-slider::-webkit-slider-thumb { width: 30px; height: 30px; margin-top: -11px; background: #7a5bfa; border: 3px solid white; box-shadow: 0 2px 8px #7256cb40; }
+.aim-slider::-moz-range-track { height: 8px; background: #ece8fa; }
+.aim-slider::-moz-range-thumb { width: 25px; height: 25px; border: 3px solid white; background: #7a5bfa; }
+.alignment { background: #f6f3ff; border-color: #bcabef; color: #9b87b6; }
+.alignment.ready { background: #eaf9f2; border-color: #5ac6a3; color: #389b7e; }
+.primary-button { background: #6b4ef5; border-color: #6b4ef5; border-radius: 22px; box-shadow: 0 2px 0 #5535d6; color: white; }
+.primary-button:hover:not(:disabled), .guided-action:hover:not(:disabled) { background: #6141ed; }
+.primary-button:disabled { background: #c1b7eb; border-color: #c1b7eb; color: white; opacity: 1; }
+.secondary-button, .tray-piece { background: #f6f3ff; color: #6544a9; border: 1px solid #e9e0ff; border-radius: 22px; box-shadow: 0 2px 0 #e7dff8; }
+.secondary-button:hover:not(:disabled) { color: #6243b8; background: #eee7ff; }
+.guided-action { background: #6b4ef5; border-color: #6b4ef5; }
+.guided-action::after { border-color: #ac98ff; border-radius: 24px; animation-name: brand-next-pulse; }
+@keyframes brand-next-pulse { 0%, 100% { opacity: .4; box-shadow: 0 0 0 0 #8b67ff00; } 50% { opacity: 1; box-shadow: 0 0 0 3px #8b67ff24; } }
+.panel-footer { background: #fff; border-color: #eee8f7; }
+.back-action { background: #f4f0ff; border-color: #eee5ff; color: #a18dbf; border-radius: 9px; box-shadow: none; }
+.compact-next-note { color: #55aa90; }
+.question-fields label { color: #78668d; }
+.question-fields select, .question-fields input { background: #faf8ff; color: #695086; border: 1px solid #e1d7f5; border-radius: 9px; box-shadow: var(--inset); }
+.question-fields [aria-invalid=true] { color: #a9653d; background: #fff4e7; border-color: #efbd87; }
+.mode-buttons { padding: 3px; gap: 3px; border: 1px solid #ece4f8; border-radius: 22px; background: #f7f4fd; }
+.mode-buttons button { background: transparent; color: #776787; border: 1px solid transparent; border-radius: 18px; box-shadow: none; }
+.mode-buttons button.selected { background: #6a4df5; color: white; border-color: #6a4df5; box-shadow: 0 2px 4px #6a4df526; }
+.cause-list button { color: #8a74a5; border-color: #eee6fa; border-radius: 9px; background: #fbf9ff; box-shadow: none; }
+.cause-list button.visited { color: #3ca78c; border-color: #aee8d8; background: #f0fcf7; }
+.equipment-tray { background: white; color: #a18bb6; border-color: #eee6f7; }
+.diagram-target { background: #7c5bf2; box-shadow: 0 2px 10px #7b5bc64d; }
+.diagram-target.drop-active { outline-color: #c9b5ff; }
+.drag-ghost { background: #e5d9ff; color: #7451aa; box-shadow: 0 6px 16px #5b428b22; }
+.mentor-avatar { box-shadow: 0 2px 6px #cbbd7233; }
+.mentor-bubble { border-color: #e8e2f4; background: #ffffff; box-shadow: none; }
+.mentor-bubble::before { border-color: #e8e2f4; }
+.mentor-prompt.good .mentor-bubble { background: #f2fbf7; border-color: #cdeadd; }
+.mentor-prompt.warn .mentor-bubble { background: #fff7e8; border-color: #f3dfb7; }
+.mentor-heading > strong { color: #7a6694; }
+.mentor-message { color: #726180; }
+.mentor-controls summary { color: #b6a7c9; }
+.mentor-controls summary:hover, .mentor-controls[open] summary { background: #eee7fc; color: #8b64d9; }
+.mentor-menu { border-color: #ede5f7; background: white; box-shadow: 0 5px 24px #6c4c9926; }
+.mentor-menu button { color: #967cae; }
+.mentor-menu button:hover { background: #f4eeff; }
+.mentor-reopen { background: white; color: #a289ba; border-color: #ede5f7; }
+.view-switch, .review-tabs { background: #eee8fb; box-shadow: none; border-radius: 20px; }
+.view-switch button, .review-tabs button { color: #78618e; border-radius: 16px; }
+.view-switch button[aria-selected=true], .review-tabs button[aria-selected=true] { background: #6a4df5; color: white; border-color: #6a4df5; box-shadow: 0 2px 4px #6a4df526; }
+.record-header, .record-foot { border-color: #eee6f7; color: #7a628b; }
+.imaging-table th { background: #f4effe; color: #725887; }
+.imaging-table th, .imaging-table td { border-color: #eee6f7; }
+.imaging-table input, .imaging-table select { background: #faf7ff; border-color: #e8dcf5; color: #705984; border-radius: 7px; }
+.guide-dialog { background: #faf8ff; border-color: #eee6fc; color: #715587; border-radius: 16px; box-shadow: 0 16px 60px #4d337d33; }
+.guide-dialog::backdrop { background: #35204f65; }
+.dialog-close { background: #eee5fc; color: #b19ac6; }
+.dialog-note { color: #79588f; background: #f0e7ff; border-radius: 10px; }
+.topic-grid button { background: white; border-color: #eee4fc; box-shadow: 0 2px 4px #855baf0a; border-radius: 12px; color: #725588; }
+.topic-grid button > span { color: #cfb4df; }
+.topic-grid button > svg { color: #72c6ae; }
+.graph-caption { color: #7a5c8d; border-color: #eee3f9; }
+.graph-area svg text { font-family: "Lab Text", "Lab Round", "Lab Math", sans-serif; }
+.visual-area.bench-expanded { border-radius: 12px; box-shadow: 0 0 0 100vmax #39275499, 0 8px 40px #39275440; }
+.slider-track { display: grid; grid-template-columns: 36px minmax(0, 1fr) 36px; align-items: center; gap: 8px; }
+.range-step { display: grid; place-items: center; min-height: 40px; border: 0; border-radius: 11px; padding: 0; background: #f2edff; color: #9274cb; touch-action: manipulation; }
+.range-step:hover:not(:disabled) { color: #7652bc; background: #e9e0ff; }
+@media (orientation: landscape) and (max-height: 600px) {
+  .topbar { height: 40px; }
+  .brand strong { font-size: 15px; }
+  .brand-mark { border-radius: 8px; }
+  .main { padding: 5px max(8px, env(safe-area-inset-right)) 6px max(8px, env(safe-area-inset-left)); gap: 6px; }
+  .curriculum-app .step-nav { left: max(153px, calc(env(safe-area-inset-left) + 143px)); right: max(124px, calc(env(safe-area-inset-right) + 114px)); }
+  .curriculum-app .step-select select { height: 32px; border-color: #ffffff30; background: #ffffff; color: #63428f; border-radius: 18px; }
+  .curriculum-app .progress-caption { color: #ffffffce; }
+  .question-line { min-height: 34px; padding: 4px 7px; gap: 9px; border-radius: 8px; }
+  .question-line h1 { font-size: 14px; line-height: 1.4; }
+  .type-tag { font-size: 11px; padding: 3px 6px; }
+  .content-grid { grid-template-columns: minmax(0, 1.75fr) minmax(244px, 1fr); gap: 8px; }
+  .left-workspace, .right-workspace { gap: 6px; }
+  .visual-toolbar { height: 28px; padding: 0 8px; }
+  .visual-tools { gap: 5px; }
+  .bench-expand { width: 34px; height: 26px; }
+  .visual-title { font-size: 12px; }
+  .screen-status { height: 32%; min-height: 94px; max-height: 112px; }
+  .screen-status.screen-observing { height: 42%; min-height: 112px; max-height: 136px; }
+  .screen-heading { height: 23px; }
+  .observation-strip { padding: 3px 6px; }
+  .view-caption { font-size: 11px; }
+  .panel-index, .phase-indicators { height: 26px; }
+  .panel-index { padding: 0 8px; font-size: 12px; }
+  .phase-indicators { right: 7px; gap: 7px; }
+  .panel-content { padding: 4px 10px; gap: 4px; }
+  .panel-content > .alignment { display: none; }
+  .lab-slider { position: relative; padding: 0 38px; gap: 0; min-height: 46px; }
+  .control-label { font-size: 13px; line-height: 16px; gap: 3px; }
+  .control-label strong { font-size: 14px; white-space: nowrap; }
+  .aim-slider { height: 30px; }
+  .lab-slider .slider-track { display: block; }
+  .lab-slider .range-step { position: absolute; top: 3px; bottom: 0; width: 32px; }
+  .lab-slider .range-step:first-child { left: 0; }
+  .lab-slider .range-step:last-child { right: 0; }
+  .primary-button, .secondary-button { min-height: 42px; font-size: 14px; padding: 7px 8px; }
+  .slider-track { gap: 6px; }
+  .mode-buttons button { min-height: 38px; }
+  .curriculum-app .question-fields select, .curriculum-app .question-fields input { height: 42px; }
+  .curriculum-app .panel-footer { padding: 5px 9px; }
+  .back-action { width: 36px; }
+  .compact-next-note { display: none; }
+  .curriculum-app .mentor-prompt { height: 42px; min-height: 42px; gap: 7px; }
+  .curriculum-app .mentor-avatar { width: 32px; height: 32px; border-radius: 7px; }
+  .curriculum-app .mentor-bubble { padding: 4px 34px 4px 9px; border-radius: 10px; }
+  .curriculum-app .mentor-bubble::before { bottom: 14px; }
+  .curriculum-app .mentor-message { font-size: 12px; line-height: 1.4; }
+  .curriculum-app .mentor-controls summary { width: 28px; height: 28px; }
+  .curriculum-app .mentor-heading { right: 3px; }
+  .curriculum-app .mentor-speaking { top: -9px; right: 8px; transform: scale(.75); }
+  .equipment-tray { min-height: 42px; }
+  .tray-piece { min-height: 36px; }
+  .guide-dialog { padding: 18px; }
+}
+@media (orientation: landscape) and (max-height: 600px) and (max-width: 600px) {
+  .brand strong { display: none; }
+  .curriculum-app .step-nav { left: 54px; }
+  .content-grid { grid-template-columns: minmax(0, 1fr) minmax(218px, .9fr); gap: 6px; }
+  .question-line h1 { font-size: 13px; }
+  .main { padding-left: 6px; padding-right: 6px; }
+  .curriculum-app .mentor-message { font-size: 11px; }
+}
+@media (orientation: portrait) {
+  .curriculum-app { background: #f6f4fc; }
+  .curriculum-app .progress-caption { color: #897599; }
+  .brand strong { font-size: 17px; }
+  .main { padding: 10px; gap: 10px; }
+  .curriculum-app .mentor-prompt { height: 54px; min-height: 54px; }
+  .curriculum-app .mentor-avatar { width: 32px; height: 32px; }
+  .curriculum-app .mentor-bubble { justify-content: center; padding: 5px 36px 5px 9px; }
+  .curriculum-app .mentor-heading { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); }
+  .curriculum-app .mentor-heading > strong { display: none; }
+  .curriculum-app .mentor-message { font-size: 13px; }
+  .curriculum-app .mentor-speaking { position: absolute; right: 8px; top: -12px; transform: scale(.8); }
+  .visual-area { height: 300px; }
+  .screen-status { height: 145px; }
+  .aim-slider { height: 44px; }
+  .primary-button, .secondary-button, .mode-buttons button { min-height: 46px; }
+  .question-fields select, .question-fields input { height: 46px; }
+}
+@media (prefers-reduced-motion: reduce) { .guided-action::after { animation: none; } }

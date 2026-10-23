@@ -1,160 +1,159 @@
-import { useEffect, useRef, useState } from 'react'
-import { ArrowDownToLine, ArrowRight, Check, CheckCircle2, ChevronDown, Eye, Focus, HelpCircle, Printer, RotateCcw, X } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { ArrowDownToLine, ArrowLeft, ArrowRight, ArrowLeftRight, Check, CheckCircle2, ChevronDown, Droplets, Eye, Flame as FlameIcon, Focus, Glasses, HelpCircle, LayoutGrid, Minus, Plus, Printer, RotateCcw, X } from 'lucide-react'
 import { Bench, ScreenStatus } from './Bench'
 import { MentorPrompt } from './MentorPrompt'
-import { downloadRecords, fresh, load, selectStep, stepQuestions, stepTypes, STORAGE_KEY, taskText, titles, trials, wrongCells } from './lesson'
-import type { LessonState, RecordRow } from './lesson'
-import { optics } from './model'
-import { introCue, useVoiceGuide } from './useVoiceGuide'
+import { downloadRecords, fresh, groups, load, physicsFor, ready, selectStep, stages, STORAGE_KEY, trials, wrongAnswers, wrongCells, type LabState, type RecordRow } from './curriculum'
+import { useVoiceGuide } from './useVoiceGuide'
 
-type Hint = { text: string; tone: 'tip' | 'warn' | 'good' }
-const alignmentChoices = ['三者中心大致处于同一高度', '只需要让蜡烛和光屏靠得更近', '让透镜高于烛焰']
-
-export default function App() {
-  const [s, setState] = useState<LessonState>(load)
-  const [dialog, setDialog] = useState<'reset' | 'help' | null>(null)
-  const [choice, setChoice] = useState<number | null>(null)
-  const [feedback, setFeedback] = useState('')
-  const [hint, setHint] = useState<Hint | null>(null)
-  const [errors, setErrors] = useState<string[]>([])
-  const [saved, setSaved] = useState(true)
-  const [review, setReview] = useState(0)
-  const [recordView, setRecordView] = useState<'table' | 'bench'>('table')
-  const dialogRef = useRef<HTMLDialogElement>(null)
-  const cueTimer = useRef<number | null>(null)
-  const spoken = useRef(new Set<string>())
-  const voice = useVoiceGuide(introCue(s.step))
-  const step = s.step
-  const trialIndex = step - 3
-  const isTrial = trialIndex >= 0 && trialIndex < 5
-  const trial = trials[isTrial ? trialIndex : 0]
-  const physics = optics(s.u, s.screen, step === 2, s.throughLens)
-  const scanned = s.scanned[0] <= 8 && s.scanned[1] >= 34
-  const canObserve = step === 1 ? s.height === 0 : step === 2 ? physics.focused : isTrial && s.objectLocked && (trialIndex < 3 ? physics.focused : trialIndex === 3 ? scanned : s.throughLens)
-  const viewing: LessonState = step >= 8 ? { ...s, step: 3 + review, phase: 'observe', u: trials[review].u, screen: review < 3 ? Number(trials[review].v) : 24, equipment: 3, objectLocked: true, throughLens: review === 4 } : s
-
-  useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); setSaved(true) } catch { setSaved(false) }
-  }, [s])
-  useEffect(() => {
-    if (dialog && !dialogRef.current?.open) dialogRef.current?.showModal()
-    if (!dialog && dialogRef.current?.open) dialogRef.current.close()
-  }, [dialog])
-  useEffect(() => () => { if (cueTimer.current !== null) window.clearTimeout(cueTimer.current) }, [])
-
-  function patch(values: Partial<LessonState>) { setState(old => ({ ...old, ...values })) }
-  function showHint(text: string, tone: Hint['tone'] = 'tip', cueId?: string, delay = 0) {
-    setHint({ text, tone })
-    if (cueTimer.current !== null) window.clearTimeout(cueTimer.current)
-    cueTimer.current = null
-    if (!cueId) return
-    const key = `${step}:${cueId}`
-    if (spoken.current.has(key)) return
-    const speak = () => { spoken.current.add(key); voice.announce(cueId) }
-    if (delay) cueTimer.current = window.setTimeout(speak, delay)
-    else speak()
+type Hint={text:string;tone:'tip'|'warn'|'good'}
+export default function App(){
+  const [s,setState]=useState(load),[answers,setAnswers]=useState<string[]>([]),[errors,setErrors]=useState<number[]>([]),[cells,setCells]=useState<string[]>([])
+  const [hint,setHint]=useState<Hint|null>(null),[dialog,setDialog]=useState<'help'|'reset'|'more'|null>(null),[graph,setGraph]=useState(false),[saved,setSaved]=useState(true)
+  const dialogRef=useRef<HTMLDialogElement>(null),panelRef=useRef<HTMLDivElement>(null),timer=useRef<number|null>(null),spoken=useRef(new Set<string>())
+  const stage=stages[s.step],voice=useVoiceGuide(stage.cue),p=physicsFor(s),isReady=ready(s),question=stage.question,scanned=s.scanned[0]<=8&&s.scanned[1]>=34
+  const currentGroup=groups.indexOf(stage.group),summary=stage.id==='summary'
+  useEffect(()=>{try{localStorage.setItem(STORAGE_KEY,JSON.stringify(s));setSaved(true)}catch{setSaved(false)}},[s])
+  useEffect(()=>{if(dialog)dialogRef.current?.showModal();else dialogRef.current?.close()},[dialog])
+  useEffect(()=>{if(panelRef.current)panelRef.current.scrollTop=0},[s.step,s.phase])
+  useEffect(()=>{speak(s.phase==='done'?stage.resultCue:[stage.cue,...stage.actionCue?[stage.actionCue]:[]])},[])
+  useEffect(()=>()=>{if(timer.current!==null)clearTimeout(timer.current)},[])
+  function patch(values:Partial<LabState>){setState(prev=>({...prev,...values}))}
+  function speak(ids:string|string[]){if(timer.current!==null)clearTimeout(timer.current);timer.current=null;voice.announce(ids)}
+  function announce(id:string,delay=0){
+    if(timer.current!==null)clearTimeout(timer.current);timer.current=null
+    const key=`${s.step}:${id}`;if(spoken.current.has(key))return
+    const run=()=>{timer.current=null;spoken.current.add(key);voice.announce(id)}
+    if(delay)timer.current=window.setTimeout(run,delay);else run()
   }
-  function jump(target: number) {
-    if (target === step) return
-    if (cueTimer.current !== null) window.clearTimeout(cueTimer.current)
-    cueTimer.current = null
-    spoken.current = new Set([...spoken.current].filter(key => !key.startsWith(`${target}:`)))
-    setState(selectStep(s, target)); setChoice(null); setFeedback(''); setErrors([]); setHint(null); setReview(0)
-    voice.announce(introCue(target))
-    if (target === 8) setRecordView('table')
+  function jump(step:number,base=s){
+    if(timer.current!==null)clearTimeout(timer.current);timer.current=null;spoken.current.clear()
+    const next=selectStep(base,step);setState(next);setAnswers([]);setErrors([]);setCells([]);setHint(null);setGraph(false);setDialog(null)
+    const target=stages[next.step];speak([target.cue,...target.actionCue?[target.actionCue]:[]])
   }
-  function next() { jump(Math.min(step + 1, 8)) }
-  function completeStep(values: Partial<LessonState> = {}) {
-    patch({ ...values, phase: 'done', completedSteps: [...new Set([...s.completedSteps, Math.min(step, 8)])] })
-  }
-  function moveObject(u: number) {
-    patch({ u })
-    if (Math.abs(u - trial.u) <= .5) showHint('物距已到目标刻度。固定蜡烛后，观察光屏上的变化。', 'good')
-    else showHint(u < trial.u ? '蜡烛离透镜太近，沿导轨向左移动。' : '蜡烛离透镜太远，沿导轨向右移动。', 'warn', '13', 700)
-  }
-  function moveScreen(screen: number) {
-    patch({ screen, scanned: [Math.min(s.scanned[0], screen), Math.max(s.scanned[1], screen)] })
-    if (step === 2 || isTrial && trialIndex < 3) {
-      const target = step === 2 ? 10 : Number(trial.v)
-      const focused = Math.abs(screen - target) < .6
-      showHint(focused ? step === 2 ? '光斑已经最小、最亮。先读出距离，再做判断。' : '像的边缘已经清晰。先比较正倒和大小，再作答。' : screen < target ? '光屏还靠透镜太近，向右缓慢移动，留意画面是否变清晰。' : '光屏离透镜太远，向左缓慢移动，比较画面的清晰度。', focused ? 'good' : 'warn', step === 2 ? focused ? '09' : '08' : focused ? '15' : undefined, focused ? 350 : 700)
-    } else if (isTrial) {
-      const low = Math.min(s.scanned[0], screen), high = Math.max(s.scanned[1], screen)
-      showHint(low > 8 ? '先把光屏移到靠近透镜的一端，再观察有没有清晰的像。' : high < 34 ? '再把光屏移到远离透镜的一端，比较两处现象。' : trialIndex === 4 ? '两端都试过了。光屏接不到像，试着移开光屏透过透镜观察。' : '两端都试过了。观察折射光线是否在有限距离处交会。', low <= 8 && high >= 34 ? 'good' : 'tip', low > 8 ? '17' : high < 34 ? '18' : trialIndex === 4 ? '21' : '19', low <= 8 && high >= 34 ? 300 : 700)
+  function complete(){patch({phase:'done',completedSteps:[...new Set([...s.completedSteps,s.step])]});setHint({text:'观察与判断完成，可以继续下一步。',tone:'good'})}
+  function next(){jump(Math.min(stages.length-1,s.step+1),stage.id==='more'?{...s,completedSteps:[...new Set([...s.completedSteps,s.step])]}:s)}
+  function move(kind:'u'|'screen'|'height'|'cover',value:number){
+    if(s.phase!=='adjust')return
+    const values:Partial<LabState>={[kind]:value,touched:true}
+    if(kind==='screen')values.scanned=[Math.min(s.scanned[0],value),Math.max(s.scanned[1],value)]
+    const next={...s,...values},physics=physicsFor(next)
+    patch(values)
+    let text='',tone:Hint['tone']='tip',cue:string|undefined
+    if(kind==='height'){
+      text=value===0?'三个中心已经同高。观察光屏上的像是否回到中央。':value<0?'焰心偏高，向下微调，留意光屏上的像反向移动。':'焰心偏低，向上微调，留意光屏上的像反向移动。';tone=value===0?'good':'warn';cue=value===0?'old-06':'old-05'
+    }else if(kind==='cover'){
+      text=value===0?'现在无遮挡，记住这个亮度，再挡住一部分透镜。':`已遮挡 ${value}%：仔细比较像是否完整，亮度有什么变化。`;tone=value>0?'good':'tip'
+    }else if(stage.id==='graph'){
+      text=physics.focused?'像已清晰，记录这组物距与像距。':'先调清光屏，再记录一组数据；可以试试物距 15、20、30 cm。';tone=physics.focused?'good':'tip'
+    }else if(stage.targetU&&next.u!==stage.targetU){
+      text=`目标物距 ${stage.targetU.toFixed(1)} cm，当前 ${next.u.toFixed(1)} cm。${next.u<stage.targetU?'将蜡烛移离透镜。':'将蜡烛移近透镜。'}`;tone='warn';cue='old-13'
+    }else if(stage.targetScreen&&next.screen!==stage.targetScreen){
+      text=`先将光屏移到 ${stage.targetScreen.toFixed(1)} cm，再移动蜡烛使像清晰。`;tone='warn'
+    }else if(stage.id==='virtual'||stage.id==='infinity'){
+      text=next.scanned[0]>8?'先检查光屏靠近透镜的一端。':next.scanned[1]<34?'再检查远离透镜的一端，比较能否成清晰的像。':stage.id==='virtual'?'光屏两端都试过了，移开光屏，从透镜另一侧观察。':'两端都没有清晰像，观察出射光是否平行。';cue=next.scanned[0]>8?'old-17':next.scanned[1]<34?'old-18':stage.id==='virtual'?'021':'old-19'
+    }else if(physics.focused){
+      text=stage.parallel?'光斑最小、最亮。读出光屏刻度，再减去透镜刻度。':'像的轮廓已经清晰，先比较大小、方向和位置。';tone='good';cue=stage.parallel?'old-09':['small','equal','large','real'].includes(stage.id)?'old-15':undefined
+    }else{
+      text=physics.v>38?'清晰像可能在导轨范围以外；留意本题要排查的条件。':physics.v<=0||!Number.isFinite(physics.v)?'这个位置不能在有限距离的光屏上得到清晰像。':next.screen<physics.v?'光屏还偏近，向远离透镜的方向慢慢移动。':'光屏偏远，向靠近透镜的方向慢慢移动。';tone='warn';cue=stage.parallel?'old-08':undefined
     }
+    setHint({text,tone});if(cue)announce(cue,tone==='good'?300:650);else if(timer.current!==null){clearTimeout(timer.current);timer.current=null}
   }
-  function moveHeight(height: number) {
-    patch({ height })
-    showHint(height === 0 ? '烛焰中心、透镜光心与光屏中心同高。现在观察光轴。' : height < 0 ? '烛焰中心还偏高，向下微调至主光轴。' : '烛焰中心还偏低，向上微调至主光轴。', height === 0 ? 'good' : 'warn', height === 0 ? '06' : '05', height === 0 ? 350 : 700)
+  function place(){
+    if(s.equipment>=3)return
+    const equipment=s.equipment+1
+    patch({equipment,...equipment===3?{phase:'done' as const,completedSteps:[...new Set([...s.completedSteps,s.step])]}:{}})
+    setHint({text:equipment===3?'器材已到齐，接下来移动光屏寻找焦点。':`已放好${equipment===1?'平行光源':'凸透镜'}，继续放置下一件。`,tone:'good'})
+    if(equipment===3)speak('003')
   }
-  function restart() {
-    if (cueTimer.current !== null) window.clearTimeout(cueTimer.current)
-    spoken.current.clear()
-    setState(fresh()); setReview(0); setChoice(null); setErrors([]); setFeedback(''); setHint(null); setDialog(null)
-    voice.announce('01')
+  function observe(){
+    if(s.phase==='adjust'){
+      patch({phase:'observe',...stage.id==='causes'?{u:11,screen:38,height:0}:{}})
+      setHint({text:stage.id==='causes'?'现在看物距 11.0 cm 的场景，光屏已到导轨远端。':stage.id==='graph'?'观察已记录的数据和 u = v 交点，再计算焦距。':'先看实验结果，比较物与像，再进入答题。',tone:'tip'})
+      if(stage.id==='graph')setGraph(true)
+      speak(stage.id==='water-out'?['044','045']:stage.id==='cover'?'032':stage.id==='alignment'?'old-06':'old-23')
+    }else{patch({phase:'answer'});setAnswers([]);setErrors([]);setHint(null)}
   }
-  function updateRow(index: number, key: keyof RecordRow, value: string) {
-    patch({ records: s.records.map((row, i) => i === index ? { ...row, [key]: value } : row) }); setErrors([])
+  function submit(){
+    if(!question)return
+    const bad=wrongAnswers(question,answers);setErrors(bad)
+    if(bad.length){setHint({text:question.hint,tone:'warn'});const cue=stage.id==='focus'?'old-25':stage.id==='alignment'?'old-24':stage.id==='virtual'?'old-28':['small','equal','large'].includes(stage.id)?'old-26':undefined;if(cue)speak(cue);return}
+    complete();speak(stage.id==='large'?[stage.resultCue,'018']:stage.id==='equal'?'018':stage.id==='alignment'?'old-06':stage.resultCue)
   }
-  function checkAnswer() {
-    const answer = step === 1 ? 0 : step === 2 ? 1 : trial.answer
-    if (choice !== answer) {
-      const message = step === 1 ? '再看实验台上的主光轴：要让像落在光屏中央，三个中心应如何排列？' : step === 2 ? '看最小光斑对应的刻度，读的是透镜到光屏的距离。' : trialIndex === 3 ? '光屏两端都没有清晰像，再观察出射光线是否交会。' : trialIndex === 4 ? '光屏接不到像；换到透镜右侧观察，比较方向和大小。' : '回看光屏正面，再与原始烛焰比较方向、大小和能否承接。'
-      setFeedback(message); showHint(message, 'warn', step === 1 ? '24' : step === 2 ? '25' : trialIndex === 3 ? '27' : trialIndex === 4 ? '28' : '26'); return
-    }
-    setFeedback(''); showHint('判断正确。可以进入下一步。', 'good', step >= 2 && step <= 6 ? '29' : undefined); completeStep()
+  function record(){
+    if(!p.focused)return
+    if(s.samples.some(point=>Math.abs(point.u-s.u)<.3)){setHint({text:'这一物距已经记录过了，换一个位置，再调清光屏。',tone:'warn'});return}
+    const samples=[...s.samples,{u:s.u,v:s.screen}].sort((a,b)=>a.u-b.u)
+    patch({samples});setHint({text:`已记录 ${samples.length} 组。${samples.some(p=>Math.abs(p.u-p.v)<.3)?'已有等距点，再比较曲线趋势。':'别忘了寻找 u = v 的等距点。'}`,tone:'good'})
+    if(samples.length>=3)setGraph(true)
   }
-  function checkRecords() {
-    const wrong = wrongCells(s.records); setErrors(wrong)
-    if (wrong.length) { showHint(`还有 ${wrong.length} 个单元格需要修正。先回看对应物距下的光屏现象。`, 'warn', '31'); return }
-    completeStep({ step: 9 }); showHint('记录核对完成，成像规律已经整理好。', 'good', '32')
+  function glasses(kind:'near'|'far'){
+    const index=stages.findIndex(st=>st.id===`${kind}-glasses`),next=selectStep(s,index)
+    if(timer.current!==null)clearTimeout(timer.current);spoken.current.clear();setState({...next,glasses:kind});setAnswers([]);setErrors([]);setHint({text:'原来光屏距透镜 15.0 cm。加入眼镜后，移动光屏重新找到清晰像。',tone:'tip'});speak(kind==='near'?'035':'037')
   }
-  const taskFeedback = !isTrial ? '' : !s.objectLocked ? `目标物距 ${trial.u} cm，当前 ${s.u.toFixed(1)} cm` : trialIndex < 3 ? physics.focused ? '光屏轮廓清晰。现在比较像的方向与大小。' : '移动光屏，观察像的轮廓何时最清晰。' : trialIndex === 3 ? scanned ? '已比较近处和远处，观察光线是否交会。' : '分别检查光屏靠近与远离透镜时的画面。' : s.throughLens ? '透过透镜观察，再与原始烛焰比较。' : scanned ? '光屏各处都试过了，换一种观察方式。' : '先在导轨两端移动光屏，检查能否承接像。'
-  const guidance = hint?.text || (step === 0 ? `先将${['蜡烛', '凸透镜', '光屏'][Math.min(s.equipment, 2)]}拖到虚线位置。` : s.phase === 'answer' ? '根据刚才看到的结果作答；不确定可以再观察。' : step === 1 ? '对照主光轴，调整烛焰中心高度。' : step === 2 ? '比较光斑大小，找到最小、最亮的位置。' : isTrial ? taskFeedback : '逐行回看现象，再填写实验记录。')
-  const choices = step === 1 ? alignmentChoices : step === 2 ? ['5 cm', '10 cm', '20 cm'] : trial.choices
-
-  return <div className="app">
-    <header className="topbar"><div className="brand"><span className="brand-mark"><Focus size={19}/></span><strong>物理实验室</strong><span className="course-title">凸透镜成像规律</span></div><div className="header-actions"><span className="save-note">{saved ? '进度已保存' : '暂未保存'}</span><button className="icon-button" onClick={() => voice.open ? setDialog('help') : voice.reopen()} title="查看步骤提示" aria-label="查看步骤提示"><HelpCircle size={18}/></button><button className="icon-button" onClick={() => setDialog('reset')} title="重新开始实验" aria-label="重新开始实验"><RotateCcw size={18}/></button></div></header>
-    <main className="main">
-      <nav className="step-nav" aria-label="实验步骤">
-        <label className="step-select" htmlFor="lesson-step"><span>选择题型</span><select id="lesson-step" aria-label="选择实验题型" title={titles[step]} value={Math.min(step, 8)} onChange={e => jump(Number(e.target.value))}>{titles.slice(0, 9).map((title, i) => <option key={title} value={i}>{i === 0 ? '准备 · 摆放器材' : i >= 3 && i <= 7 ? `题型 ${i} · ${trials[i - 3].condition}` : stepTypes[i]}</option>)}</select><ChevronDown size={16} aria-hidden="true"/></label>
-        <div className="step-shortcuts">{titles.slice(0, 9).map((title, i) => <button className={`step-tick ${i === Math.min(step, 8) ? 'active' : ''} ${s.completedSteps.includes(i) ? 'done' : ''}`} key={title} title={`${i + 1}. ${title}`} aria-label={`跳转到${title}${s.completedSteps.includes(i) ? '，已完成' : ''}`} aria-current={i === Math.min(step, 8) ? 'step' : undefined} onClick={() => jump(i)}>{s.completedSteps.includes(i) ? <Check size={15}/> : i + 1}</button>)}</div>
-        <span className="progress-caption">{step === 9 ? '实验完成' : `${String(step + 1).padStart(2, '0')} / 09`}<span className="completion-count"> · 已完成 {s.completedSteps.length} 项</span></span>
-      </nav>
-      <div className="question-line"><span className="type-tag">{step === 0 ? '准备实验' : step === 9 ? stepTypes[step] : `题型 ${step}`}</span><h1>{step === 0 ? '按顺序摆放蜡烛、凸透镜与光屏。' : stepQuestions[step]}</h1></div>
-      <div className="content-grid">
-        <div className="left-workspace">
-          {step >= 8 && <div className="view-switch" role="tablist" aria-label="实验工作区"><button role="tab" aria-selected={recordView === 'table'} onClick={() => setRecordView('table')}>记录表</button><button role="tab" aria-selected={recordView === 'bench'} onClick={() => setRecordView('bench')}>回看光路</button></div>}
-          {(step < 8 || recordView === 'bench') ? <><Bench state={viewing} onPlace={() => { if (step === 0 && s.equipment < 3) { if (s.equipment === 2) completeStep({ equipment: 3 }); else patch({ equipment: s.equipment + 1 }); showHint(s.equipment === 2 ? '三件器材已就位。下一步调整三心同高。' : `已放好${['蜡烛', '凸透镜'][s.equipment]}，继续放置下一件。`, 'good', s.equipment === 2 ? '03' : undefined) } }} onMisplace={() => showHint('还没放到圆形目标处。沿导轨拖到虚线器材位置后松手。', 'warn', '02')} onObject={moveObject} onScreen={moveScreen} onHeight={moveHeight}/>{step >= 8 && <div className="review-tabs" role="tablist" aria-label="回看实验">{trials.map((t, i) => <button role="tab" aria-selected={review === i} onClick={() => setReview(i)} key={t.u}>{t.condition}</button>)}</div>}</> : <RecordTable step={step} records={s.records} errors={errors} updateRow={updateRow} checkRecords={checkRecords}/>}
-          <MentorPrompt guide={voice} detail={guidance} tone={hint?.tone || 'tip'}/>
+  function water(n:number){
+    const target=stages.findIndex(st=>st.id===(n===1?'water-in':'water-out'))
+    if(target!==s.step){if(timer.current!==null)clearTimeout(timer.current);spoken.current.clear();setState({...selectStep(s,target),waterInstalled:true,water:n,touched:true});setAnswers([]);setErrors([])}else patch({water:n,touched:true})
+    setHint({text:`水透镜已${n===1?'注水，形状变鼓':'抽水，形状变扁'}，物距保持不变，重新移动光屏对焦。`,tone:'tip'});speak(n===1?'041':'043')
+  }
+  function cause(index:number){
+    patch({causes:[...new Set([...s.causes,index])],u:[15,8,11][index],screen:[30,24,38][index],height:index===0?-6:0})
+    setHint({text:['焰心偏离主光轴，像可能移出光屏。先调整三个中心的高度。','物体在焦点以内，成虚像，光屏无法承接。','像距为 110.0 cm，超过本光具座可用长度。'][index],tone:'tip'});speak(['048','049','050'][index])
+  }
+  function updateRow(i:number,key:keyof RecordRow,value:string){patch({records:s.records.map((r,j)=>j===i?{...r,[key]:value}:r)});setCells([])}
+  function checkTable(){const bad=wrongCells(s.records);setCells(bad);if(bad.length){setHint({text:`还有 ${bad.length} 格需要核对，先回看对应物距下的现象。`,tone:'warn'});speak('old-31')}else{complete();speak('old-32')}}
+  function reset(){setState(fresh());setAnswers([]);setErrors([]);setCells([]);setHint(null);setGraph(false);setDialog(null);spoken.current.clear();speak(['001','002'])}
+  const guidance=hint?.text||(s.phase==='answer'?question?.hint:s.phase==='done'?'已完成本题，可以继续下一步，也可以切换题型。':stage.task)||stage.task
+  const installGlasses=stage.id.includes('glasses'),waterStage=stage.id.startsWith('water-')
+  const canControls=s.phase==='adjust',screenEnabled=canControls&&(!installGlasses||s.glasses!=='none')&&(!waterStage||s.waterInstalled)&&!(stage.id==='graph'&&!s.touched)
+  return <div className="app curriculum-app">
+    <header className="topbar"><div className="brand"><span className="brand-mark"><Focus size={19}/></span><strong>物理实验室</strong><span className="course-title">凸透镜 · 教材探究</span></div><div className="header-actions"><span className="save-note">{saved?'进度已保存':'进度暂未保存'}</span><button className="icon-button" aria-label="更多题型" title="更多题型" onClick={()=>setDialog('more')}><LayoutGrid size={18}/></button><button className="icon-button" aria-label="查看步骤提示" title="查看步骤提示" onClick={()=>setDialog('help')}><HelpCircle size={18}/></button><button className="icon-button" aria-label="重新开始实验" title="重新开始实验" onClick={()=>setDialog('reset')}><RotateCcw size={18}/></button></div></header>
+    <main className="main"><nav className="step-nav" aria-label="实验题型"><label className="step-select"><span>选择题型</span><select aria-label="选择实验题型" value={s.step} onChange={e=>jump(Number(e.target.value))}>{groups.map((group,i)=><optgroup label={`${i+1}. ${group}`} key={group}>{stages.map((st,j)=>st.group===group?<option value={j} key={st.id}>{String(i+1).padStart(2,'0')} · {st.title}{s.completedSteps.includes(j)?' ✓':''}</option>:null)}</optgroup>)}</select><ChevronDown size={16}/></label><span className="group-name">{stage.group}</span><span className="progress-caption">{currentGroup+1} / {groups.length}<span className="completion-count"> · 已完成 {s.completedSteps.length} / {stages.length} 小节</span></span></nav>
+      <div className="question-line"><span className="type-tag">题型 {currentGroup+1}</span><h1>{s.phase==='answer'?question?.prompt||stage.task:stage.task}</h1></div>
+      <div className="content-grid"><div className="left-workspace">
+        {stage.id==='graph'&&s.touched&&<div className="view-switch" role="tablist" aria-label="图像实验视图"><button role="tab" aria-selected={!graph} onClick={()=>setGraph(false)}>光具座</button><button role="tab" aria-selected={graph} onClick={()=>setGraph(true)}>物距—像距图像 · {s.samples.length} 点</button></div>}
+        {summary?<RecordTable state={s} errors={cells} update={updateRow} check={checkTable}/>:stage.id==='graph'&&graph?<DistanceGraph samples={s.samples}/>:<Bench state={s} onPlace={place} onObject={n=>move('u',n)} onScreen={n=>move('screen',n)} onHeight={n=>move('height',n)} onCover={n=>move('cover',n)} onMisplace={()=>{setHint({text:'还差一点点，对准圆形标记再松手。',tone:'warn'});announce('old-02')}}/>}
+        <MentorPrompt guide={{...voice,close:()=>{if(timer.current!==null)clearTimeout(timer.current);timer.current=null;voice.close()}}} detail={guidance} tone={hint?.tone||'tip'}/>
+      </div><div className="right-workspace"><ScreenStatus state={s}/><aside className="action-panel" aria-label="当前步骤操作"><div className="panel-index"><span>{s.phase==='done'?'本节完成':s.phase==='answer'?'观察后作答':s.phase==='observe'?'先观察结果':stage.title}</span><strong>{s.step+1} / {stages.length}</strong></div>
+        {question&&<div className="phase-indicators"><span className={s.phase==='adjust'?'current':'passed'}>操作</span><span className={s.phase==='observe'?'current':s.phase==='answer'||s.phase==='done'?'passed':''}>观察</span><span className={s.phase==='answer'?'current':s.phase==='done'?'passed':''}>作答</span></div>}
+        <div className="panel-content" ref={panelRef}>
+          {s.phase==='done'?<><div className="step-success"><CheckCircle2 size={20}/>{summary?'记录表核对完成':'本节探究完成'}</div><p>{question?question.fields.map(f=>`${f.label}：${f.answer}`).join('；'):stage.task}</p>{summary&&<><button className="primary-button" onClick={downloadRecords}><ArrowDownToLine size={16}/>下载实验记录</button><button className="secondary-button" onClick={()=>window.print()}><Printer size={16}/>打印记录表</button></>}</>:s.phase==='answer'&&question?<><div className="question-fields">{question.fields.map((f,i)=><label key={f.label}><span>{f.label}</span>{f.options?<select aria-label={f.label} aria-invalid={errors.includes(i)} value={answers[i]||''} onChange={e=>{setAnswers(a=>question.fields.map((_,j)=>j===i?e.target.value:a[j]||''));setErrors([])}}><option value="">请选择</option>{f.options.map(v=><option key={v}>{v}</option>)}</select>:<input aria-label={f.label} aria-invalid={errors.includes(i)} inputMode="decimal" placeholder="估读到 0.1" value={answers[i]||''} onChange={e=>{setAnswers(a=>question.fields.map((_,j)=>j===i?e.target.value:a[j]||''));setErrors([])}}/>}</label>)}</div>{errors.length>0&&<p className="answer-feedback" role="alert">{question.hint}</p>}<button className="secondary-button" onClick={()=>{patch({phase:'adjust'});setErrors([]);setHint(null)}}><RotateCcw size={15}/>返回实验再观察</button></>:s.phase==='observe'?<><p>{stage.id==='graph'?'找到 u = v 直线与曲线的交点，读出距离，再计算焦距。':stage.id==='causes'?'物距 11.0 cm > f，光屏在导轨最远端，仍不能接到清晰像。':'先比较光屏上的像与原光源的方向、大小、亮度和位置。'}</p><button className="secondary-button" onClick={()=>{patch({phase:'adjust'});setHint(null)}}><RotateCcw size={15}/>继续调整</button></>:<>
+            <p className="action-prompt">{stage.task}</p>
+            {stage.id==='setup'&&<div className="equipment-list">{['平行光源','凸透镜','光屏'].map((name,i)=><span key={name} className={s.equipment>i?'checked':''}>{s.equipment>i?<Check size={14}/>:i+1}{name}</span>)}</div>}
+            {stage.id==='graph'&&!s.touched&&<button className="secondary-button" onClick={()=>{patch({touched:true});speak('006')}}><Plus size={16}/>安装蜡烛</button>}
+            {stage.id==='f-source'&&<button className="secondary-button" disabled={s.source==='F'} onClick={()=>{patch({source:'F'});speak('011')}}><ArrowLeftRight size={16}/>{s.source==='F'?'F 光源已安装':'换成 F 光源'}</button>}
+            {stage.height&&<Slider label="焰心高度偏移" value={s.height} min={-6} max={6} disabled={!canControls} onChange={n=>move('height',n)}/>}
+            {stage.object&&(stage.id!=='graph'||s.touched)&&<Slider label="物距 u" value={s.u} min={stage.id==='graph'?14:5} max={35} onChange={n=>move('u',n)} disabled={!canControls}/>}
+            {installGlasses&&<div className="mode-buttons" aria-label="选择眼镜"><button className={s.glasses==='near'?'selected':''} onClick={()=>glasses('near')}><Glasses size={15}/>近视镜</button><button className={s.glasses==='far'?'selected':''} onClick={()=>glasses('far')}><Glasses size={15}/>远视镜</button></div>}
+            {waterStage&&(!s.waterInstalled?<button className="secondary-button" onClick={()=>{patch({waterInstalled:true});speak('040')}}><Plus size={16}/>安装水透镜</button>:<div className="mode-buttons" aria-label="水透镜操作"><button className={s.water===1?'selected':''} onClick={()=>water(1)}><Droplets size={15}/>注水</button><button className={s.water===-1?'selected':''} onClick={()=>water(-1)}><Droplets size={15}/>抽水</button></div>)}
+            {stage.screenMove&&!s.throughLens&&<Slider label="光屏距透镜" value={s.screen} min={5} max={38} disabled={!screenEnabled} onChange={n=>move('screen',n)}/>}
+            {stage.id==='focus'&&<div className="ruler-readings"><span>透镜刻度 40.0 cm</span><span>光屏刻度 {(40+s.screen).toFixed(1)} cm</span></div>}
+            {stage.id==='graph'&&s.touched&&<><button className="secondary-button" disabled={!p.focused} onClick={record}><Plus size={15}/>记录此组数据（{s.samples.length} / 3）</button><div className="sample-list">{s.samples.map(v=><span key={v.u}>u {v.u.toFixed(1)} · v {v.v.toFixed(1)}</span>)}</div></>}
+            {stage.id==='virtual'&&<button className="secondary-button" disabled={!scanned||s.throughLens} onClick={()=>{patch({throughLens:true});setHint({text:'从透镜另一侧看，比较像的正倒与大小。',tone:'good'});speak('old-22')}}><EyeIcon/>{s.throughLens?'正在透镜另一侧观察':'移开光屏，透过透镜观察'}</button>}
+            {stage.id==='cover'&&<Slider label="透镜遮挡比例" value={s.cover} min={0} max={75} unit="%" step={5} onChange={n=>move('cover',n)}/>}
+            {stage.id==='causes'&&<div className="cause-list">{['三心不同高','物体在焦点内','光具座太短'].map((text,i)=><button key={text} className={s.causes.includes(i)?'visited':''} onClick={()=>cause(i)}>{s.causes.includes(i)?<Check size={14}/>:i+1}{text}</button>)}</div>}
+            {stage.id==='burn'&&<><div className="mode-buttons"><button onClick={()=>patch({lit:false,burned:0,height:0})}><RotateCcw size={15}/>换新蜡烛</button><button disabled={s.burned>=3} onClick={()=>{if(!s.lit)patch({lit:true});else patch({burned:Math.min(3,s.burned+1),height:Math.min(3,s.burned+1)})}}><FlameIcon size={15}/>{s.lit?'继续燃烧':'点燃蜡烛'}</button></div><p>焰心下降 {s.burned.toFixed(1)} cm · 观察光屏上像的位置</p></>}
+            {stage.id==='swap'&&<button className="secondary-button" disabled={s.swapped} onClick={()=>{patch({swapped:true,u:15,screen:30});setHint({text:'蜡烛与光屏已在两侧互换。透镜不动，观察清晰像的大小。',tone:'good'})}}><ArrowLeftRight size={16}/>{s.swapped?'两侧位置已互换':'互换蜡烛与光屏'}</button>}
+            {stage.id==='more'&&<button className="secondary-button" onClick={()=>setDialog('more')}><LayoutGrid size={16}/>更多题型</button>}
+            {summary&&<><p>一倍焦距分虚实，二倍焦距分大小。</p><p>成实像时：物近像远像变大，物远像近像变小。</p><p>物距不变、仍成实像时：镜鼓焦小像变近，镜扁焦大像变远。</p><button className="secondary-button" onClick={()=>setDialog('more')}><LayoutGrid size={16}/>回看题型与现象</button></>}
+            {question&&<div className={`alignment ${isReady?'ready':''}`}>{isReady?'操作已完成，先观察结果。':hint?.text||stage.task}</div>}
+          </>}
         </div>
-        <div className="right-workspace"><ScreenStatus state={viewing}/><aside className="action-panel" aria-label="当前步骤操作"><div className="panel-index"><span>{s.phase === 'answer' ? '观察后判断' : s.phase === 'done' ? '本步已完成' : s.phase === 'observe' ? '先观察结果' : '当前操作'}</span><strong>{String(Math.min(step + 1, 9)).padStart(2, '0')}</strong></div>
-          {step < 8 && <div className="phase-indicators"><span className={s.phase === 'adjust' ? 'current' : 'passed'}>操作</span><span className={s.phase === 'observe' ? 'current' : s.phase === 'answer' || s.phase === 'done' ? 'passed' : ''}>观察</span><span className={s.phase === 'answer' ? 'current' : s.phase === 'done' ? 'passed' : ''}>判断</span></div>}
-          {s.phase === 'done' && step < 8 ? <div className="panel-content"><div className="step-success"><CheckCircle2 size={19}/><strong>{step === 0 ? '器材已就位' : '本题完成'}</strong></div><p>{step === 0 ? '接下来调整三心同高。' : step === 1 ? '三个中心在同一高度，便于让像落在光屏中央。' : step === 2 ? '最小光斑距透镜 10 cm，焦距 f = 10 cm。' : `${trial.condition}：${trial.nature === '不成有限远像' ? trial.nature : `${trial.orientation}、${trial.size}的${trial.nature}`}。`}</p></div> : s.phase === 'answer' && step < 8 ? <div className="panel-content"><p className="action-prompt">{stepQuestions[step]}</p><div className="answer-options">{choices.map((text, i) => <button key={text} aria-pressed={choice === i} className={choice === i ? 'selected' : ''} onClick={() => { setChoice(i); setFeedback('') }}><span>{String.fromCharCode(65 + i)}</span>{text}</button>)}</div>{feedback && <p className="answer-feedback" role="alert">{feedback}</p>}<button className="secondary-button" onClick={() => { patch({ phase: 'observe' }); setFeedback('') }}><Eye size={15}/> 再观察一下</button></div> : <div className="panel-content"><p className="action-prompt">{s.phase === 'observe' ? '先看实验结果，再决定答案。' : taskText(step)}</p>
-            {step === 0 && <div className="equipment-list">{['蜡烛', '凸透镜', '光屏'].map((name, i) => <span className={s.equipment > i ? 'checked' : ''} key={name}>{s.equipment > i ? <Check size={13}/> : i + 1} {name}</span>)}</div>}
-            {step === 1 && <><label className="control-label" htmlFor="height">烛焰中心偏移 <strong>{s.height.toFixed(1)} cm</strong></label><input id="height" className="aim-slider" aria-label="调节火焰高度" type="range" min="-3" max="3" step="0.5" value={s.height} disabled={s.phase !== 'adjust'} onChange={e => moveHeight(Number(e.target.value))}/><div className={`alignment ${s.height === 0 ? 'ready' : ''}`}>{s.height === 0 ? '三个中心已对齐' : '让烛焰中心落在主光轴上'}</div></>}
-            {isTrial && !s.objectLocked && <><label className="control-label" htmlFor="object-distance">物距 u <strong>{s.u.toFixed(1)} cm</strong></label><input id="object-distance" className="aim-slider" aria-label="调节蜡烛与透镜的距离" type="range" min="5" max="35" step="0.5" value={s.u} disabled={s.phase !== 'adjust'} onChange={e => moveObject(Number(e.target.value))}/></>}
-            {(step === 2 || isTrial && s.objectLocked) && !s.throughLens && <><label className="control-label" htmlFor="screen-distance">光屏距透镜 <strong>{s.screen.toFixed(1)} cm</strong></label><input id="screen-distance" className="aim-slider" aria-label="调节光屏距透镜的距离" type="range" min="5" max="38" step="0.5" value={s.screen} disabled={s.phase !== 'adjust'} onChange={e => moveScreen(Number(e.target.value))}/><div className="range-labels"><span>靠近透镜</span><span>远离透镜</span></div></>}
-            {(step === 2 || isTrial) && <div className={`alignment ${canObserve ? 'ready' : ''}`}>{s.phase === 'observe' ? '看光屏或观察窗中的结果，再开始判断。' : step === 2 ? physics.focused ? '光斑最小、最亮。' : '比较光斑大小，继续移动。' : taskFeedback}</div>}
-            {s.phase === 'observe' && step < 8 && <button className="secondary-button" onClick={() => patch({ phase: 'adjust' })}><RotateCcw size={15}/> 继续调整</button>}
-            {step === 8 && <><p>选择一行物距，对照光路填写像距、正倒、大小和虚实。</p>{recordView === 'bench' && <button className="primary-button" onClick={() => setRecordView('table')}>返回记录表 <ArrowRight size={16}/></button>}</>}
-            {step === 9 && <><div className="step-success"><CheckCircle2 size={20}/> 探究完成</div><button className="primary-button" onClick={downloadRecords}><ArrowDownToLine size={16}/> 下载实验表格</button><button className="secondary-button" onClick={() => window.print()}><Printer size={16}/> 打印实验记录</button></>}
-          </div>}
-          {step < 8 && (s.phase === 'done' ? <NextAction ready note="本步完成，继续下一步" onClick={next} label="进入下一步"/> : s.phase === 'answer' ? <NextAction disabled={choice === null} onClick={checkAnswer} label="确认判断"/> : isTrial && !s.objectLocked ? <NextAction ready={s.u === trial.u} disabled={s.u !== trial.u} note="物距已到位，点这里确认" label="确认物距" onClick={() => { patch({ objectLocked: true, scanned: [s.screen, s.screen] }); showHint('物距已固定。移动光屏观察画面如何变化。', 'good', '14') }}/> : isTrial && trialIndex === 4 && !s.throughLens ? <NextAction ready={scanned} disabled={!scanned} note="光屏两端已检查，换个视角" label="移开光屏，透过透镜观察" onClick={() => { patch({ throughLens: true }); showHint('现在看透镜右侧的视野：像是正立还是倒立？', 'good', '22') }}/> : step > 0 ? <NextAction ready={canObserve} disabled={!canObserve} note={s.phase === 'observe' ? '观察好了？接着来判断' : step === 6 ? '两端已检查，观察结果吧' : '位置已调好，观察结果吧'} label={s.phase === 'observe' ? '已观察，开始判断' : '确认位置，观察结果'} onClick={() => { if (s.phase === 'adjust') { patch({ phase: 'observe' }); showHint('先观察左侧光路和右上角光屏状态，再进入判断。', 'tip', '23') } else { patch({ phase: 'answer' }); setChoice(null); setHint(null) } }}/> : null)}
-        </aside></div>
-      </div>
+        {!summary&&<div className="panel-footer"><div className="footer-navigation"><button className="back-action" aria-label="上一步" title="上一步" disabled={s.step===0} onClick={()=>jump(s.step-1)}><ArrowLeft size={16}/></button>{s.phase==='done'||stage.id==='more'?<button className="primary-button guided-action" onClick={next}>进入下一步<ArrowRight size={16}/></button>:s.phase==='answer'?<button className="primary-button" disabled={!question?.fields.every((_,i)=>!!answers[i]?.trim())} onClick={submit}>确认答案<Check size={16}/></button>:question?<button className={`primary-button ${isReady||s.phase==='observe'?'guided-action':''}`} disabled={!isReady&&s.phase!=='observe'} onClick={observe}>{s.phase==='observe'?'已观察，开始答题':'确认位置，观察结果'}<ArrowRight size={16}/></button>:<button className="primary-button" disabled={!isReady} onClick={next}>进入下一步<ArrowRight size={16}/></button>}</div>{(isReady||s.phase==='done'||s.phase==='observe')&&<span className="compact-next-note"><CheckCircle2 size={13}/>可以继续下一步</span>}</div>}
+      </aside></div></div>
     </main>
-    <dialog ref={dialogRef} className="guide-dialog" onCancel={() => setDialog(null)}><button className="dialog-close" onClick={() => setDialog(null)} aria-label="关闭弹窗"><X size={18}/></button><h2>{dialog === 'reset' ? '重新开始实验？' : titles[step]}</h2><p>{dialog === 'reset' ? '将清空当前步骤进度和填写的记录表。' : taskText(step)}</p>{dialog === 'help' && <div className="dialog-note">{guidance}</div>}<button className="primary-button" onClick={dialog === 'reset' ? restart : () => setDialog(null)}>{dialog === 'reset' ? '确认重新开始' : '继续实验'} <ArrowRight size={16}/></button></dialog>
+    <dialog className={`guide-dialog ${dialog==='more'?'topic-dialog':''}`} ref={dialogRef} onCancel={()=>setDialog(null)}><button className="dialog-close" aria-label="关闭弹窗" onClick={()=>setDialog(null)}><X size={18}/></button><h2>{dialog==='more'?'更多题型':dialog==='reset'?'重新开始实验？':stage.title}</h2>{dialog==='more'?<div className="topic-grid">{groups.map((group,i)=><button key={group} onClick={()=>jump(stages.findIndex(st=>st.group===group))}><span>{String(i+1).padStart(2,'0')}</span><strong>{group}</strong>{stages.filter(st=>st.group===group).every(st=>s.completedSteps.includes(stages.indexOf(st)))&&<CheckCircle2 size={15}/>}</button>)}</div>:<><p>{dialog==='reset'?'将清空本课程的操作进度与记录表。':stage.task}</p>{dialog==='help'&&<div className="dialog-note">{guidance}</div>}<button className="primary-button" onClick={dialog==='reset'?reset:()=>setDialog(null)}>{dialog==='reset'?'确认重新开始':'继续实验'}<ArrowRight size={16}/></button></>}</dialog>
   </div>
 }
-
-function NextAction({ ready = false, disabled = false, note, label, onClick }: { ready?: boolean; disabled?: boolean; note?: string; label: string; onClick: () => void }) {
-  return <div className={`panel-footer ${ready ? 'next-action-ready' : ''}`}>
-    {ready && <div className="next-action-note"><CheckCircle2 size={14}/><span>{note}</span><ChevronDown size={14}/></div>}
-    <button className={`primary-button ${ready ? 'guided-action' : ''}`} disabled={disabled} onClick={onClick}>{label}<ArrowRight size={16}/></button>
-  </div>
+function EyeIcon(){return <Eye size={15}/>}
+function Slider({label,value,min,max,onChange,disabled=false,unit='cm',step=.1}:{label:string;value:number;min:number;max:number;onChange:(n:number)=>void;disabled?:boolean;unit?:string;step?:number}){
+  const id=useId()
+  const adjust=(direction:number)=>onChange(Math.max(min,Math.min(max,Math.round((value+direction*step)*10)/10)))
+  return <div className="lab-slider"><label htmlFor={id} className="control-label">{label}<strong>{value.toFixed(unit==='%'?0:1)} {unit}</strong></label><div className="slider-track"><button className="range-step" aria-label={`减小${label}`} title={`减小 ${step} ${unit}`} disabled={disabled||value<=min} onClick={()=>adjust(-1)}><Minus size={16}/></button><input id={id} className="aim-slider" type="range" aria-label={`调节${label}`} value={value} min={min} max={max} step={step} disabled={disabled} onChange={e=>onChange(Number(e.target.value))}/><button className="range-step" aria-label={`增大${label}`} title={`增大 ${step} ${unit}`} disabled={disabled||value>=max} onClick={()=>adjust(1)}><Plus size={16}/></button></div></div>
 }
-
-function RecordTable({ step, records, errors, updateRow, checkRecords }: { step: number; records: RecordRow[]; errors: string[]; updateRow: (i: number, key: keyof RecordRow, value: string) => void; checkRecords: () => void }) {
-  return <section className="record-section" aria-label="凸透镜成像规律记录表"><div className="record-header"><strong>凸透镜成像规律表</strong><span>{step === 8 ? '待归纳' : '已完成'}</span></div><div className="table-scroll"><table className="imaging-table"><thead><tr><th>物距 u</th><th>像距/cm</th><th>正倒</th><th>大小</th><th>虚实</th></tr></thead><tbody>{trials.map((t, i) => <tr key={t.u}><td><strong>{t.u} cm</strong><small>{t.condition}</small></td><td>{step === 9 ? <><span>{t.v}</span><small>{t.range}</small></> : <input aria-invalid={errors.includes(`${i}-v`)} aria-label={`物距${t.u}厘米时的像距`} placeholder={i === 3 ? '∞' : '像距'} value={records[i].v} onChange={e => updateRow(i, 'v', e.target.value)}/>}</td>{(['orientation', 'size', 'nature'] as const).map(key => <td key={key}>{step === 9 ? t[key] : <select aria-invalid={errors.includes(`${i}-${key}`)} aria-label={`物距${t.u}厘米时的${key === 'orientation' ? '正倒' : key === 'size' ? '大小' : '虚实'}`} value={records[i][key]} onChange={e => updateRow(i, key, e.target.value)}><option value="">请选择</option>{(key === 'orientation' ? ['正立', '倒立', '—'] : key === 'size' ? ['缩小', '等大', '放大', '—'] : ['实像', '虚像', '不成有限远像']).map(v => <option key={v}>{v}</option>)}</select>}</td>)}</tr>)}</tbody></table></div><div className="record-foot"><span>{errors.length ? <span role="alert">有 {errors.length} 处待修正，已标出单元格。</span> : step === 8 ? '像距填距离大小；焦点处填 ∞。' : '一倍焦距分虚实，二倍焦距分大小。'}</span>{step === 8 && <button className="primary-button" onClick={checkRecords}>核对并完成实验 <ArrowRight size={16}/></button>}</div></section>
+function DistanceGraph({samples}:{samples:{u:number;v:number}[]}){
+  const x=(u:number)=>65+(u-10)*12,y=(v:number)=>320-(v-10)*6.5
+  return <section className="visual-area graph-area" aria-label="物距像距关系图像"><div className="visual-toolbar"><strong>物距 u — 像距 v</strong><span className="scale-label">f = u / 2（u = v 时）</span></div><svg viewBox="0 0 490 380" role="img" aria-label="实验描点图，虚线表示物距等于像距"><rect width="490" height="380" fill="#f8fafc"/>{[10,15,20,25,30,35,40,45,50].map(v=><g key={v}><line x1="65" x2="430" y1={y(v)} y2={y(v)} stroke="#dce4eb"/><text x="53" y={y(v)+4} textAnchor="end">{v}</text></g>)}{[10,15,20,25,30,35,40].map(u=><g key={u}><line x1={x(u)} x2={x(u)} y1="55" y2="320" stroke="#dce4eb"/><text x={x(u)} y="340" textAnchor="middle">{u}</text></g>)}<path d="M65 50V320H435" fill="none" stroke="#718196" strokeWidth="2"/><path d={`M${x(10)} ${y(10)}L${x(40)} ${y(40)}`} stroke="#c28c48" strokeDasharray="6 5" fill="none"/><text x="400" y="110" fill="#aa7838">u = v</text><text x="12" y="30">v / cm</text><text x="415" y="365">u / cm</text>{samples.length>=3&&<path data-testid="distance-curve" d={Array.from({length:111},(_,i)=>{const u=12.5+i*.25;return `${i?'L':'M'}${x(u)} ${y(10*u/(u-10))}`}).join(' ')} stroke="#2875ca" strokeWidth="2.5" fill="none"/>}{samples.map(point=><g key={point.u}><circle data-testid="graph-point" cx={x(point.u)} cy={y(point.v)} r="6" fill="#2d9b72" stroke="white" strokeWidth="2"/><text x={x(point.u)+8} y={y(point.v)-10}>({point.u.toFixed(1)}, {point.v.toFixed(1)})</text></g>)}</svg><div className="graph-caption">已记录 {samples.length} 组 · 蓝线：薄透镜关系曲线 · 虚线：u = v</div></section>
+}
+function RecordTable({state:s,errors,update,check}:{state:LabState;errors:string[];update:(i:number,key:keyof RecordRow,v:string)=>void;check:()=>void}){
+  return <section className="record-section" aria-label="凸透镜成像规律记录表"><div className="record-header"><strong>凸透镜成像规律表</strong><span>{s.phase==='done'?'已核对':'待归纳'}</span></div><div className="table-scroll"><table className="imaging-table"><thead><tr><th>物距 u</th><th>像距绝对值 / cm</th><th>正倒</th><th>大小</th><th>虚实</th></tr></thead><tbody>{trials.map((t,i)=><tr key={t.u}><td><strong>{t.u} cm</strong><small>{t.condition}</small></td><td>{s.phase==='done'?<>{s.records[i].v}<small>{t.range}</small></>:<input aria-label={`物距${t.u}厘米时的像距`} aria-invalid={errors.includes(`${i}-v`)} value={s.records[i].v} placeholder={i===3?'∞':'像距'} onChange={e=>update(i,'v',e.target.value)}/>}</td>{(['orientation','size','nature']as const).map(key=><td key={key}>{s.phase==='done'?s.records[i][key]:<select aria-label={`物距${t.u}厘米时的${key==='orientation'?'正倒':key==='size'?'大小':'虚实'}`} aria-invalid={errors.includes(`${i}-${key}`)} value={s.records[i][key]} onChange={e=>update(i,key,e.target.value)}><option value="">请选择</option>{(key==='orientation'?['正立','倒立','—']:key==='size'?['缩小','等大','放大','—']:['实像','虚像','不成有限远像']).map(v=><option key={v}>{v}</option>)}</select>}</td>)}</tr>)}</tbody></table></div><div className="record-foot"><span>{errors.length?`有 ${errors.length} 格待修正。`:'虚像填像距大小；焦点处填 ∞，正倒、大小填 —。'}</span>{s.phase!=='done'&&<button className="primary-button" onClick={check}>核对记录表<Check size={15}/></button>}</div></section>
 }
