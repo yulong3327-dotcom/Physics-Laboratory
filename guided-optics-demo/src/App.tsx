@@ -1,13 +1,15 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { ArrowDownToLine, ArrowLeft, ArrowRight, ArrowLeftRight, Check, CheckCircle2, ChevronDown, Droplets, Eye, Flame as FlameIcon, Focus, Glasses, HelpCircle, LayoutGrid, Minus, Plus, Printer, RotateCcw, Sparkles, X } from 'lucide-react'
+import { ArrowDownToLine, ArrowLeft, ArrowRight, ArrowLeftRight, Check, CheckCircle2, ChevronDown, Droplets, Eye, Flame as FlameIcon, Focus, Glasses, HelpCircle, House, LayoutGrid, Minus, Plus, Printer, RotateCcw, Sparkles, X } from 'lucide-react'
 import { Bench, ScreenStatus } from './Bench'
 import { MentorPrompt } from './MentorPrompt'
 import { conclusionRows, downloadRecords, fresh, groups, load, physicsFor, ready, selectStep, stages, STORAGE_KEY, topicNames, wrongAnswers, type LabState } from './curriculum'
 import { useVoiceGuide } from './useVoiceGuide'
+import { snapAdjustment } from './interaction'
+import { nativeApp } from './exportTable'
 
 type Hint={text:string;tone:'tip'|'warn'|'good'}
 const types=groups.map(group=>({name:topicNames[group]||group,step:stages.findIndex(stage=>stage.group===group),steps:stages.flatMap((stage,step)=>stage.group===group?[step]:[])}))
-export default function App(){
+export default function App({onHome}:{onHome:()=>void}){
   const [s,setState]=useState(load),[answers,setAnswers]=useState<string[]>([]),[errors,setErrors]=useState<number[]>([])
   const [hint,setHint]=useState<Hint|null>(null),[dialog,setDialog]=useState<'help'|'reset'|'more'|null>(null),[graph,setGraph]=useState(()=>stages[s.step].id==='graph'&&s.touched),[saved,setSaved]=useState(true),[toast,setToast]=useState('')
   const dialogRef=useRef<HTMLDialogElement>(null),panelRef=useRef<HTMLDivElement>(null),timer=useRef<number|null>(null),toastTimer=useRef<number|null>(null),spoken=useRef(new Set<string>())
@@ -16,36 +18,52 @@ export default function App(){
   useEffect(()=>{try{localStorage.setItem(STORAGE_KEY,JSON.stringify(s));setSaved(true)}catch{setSaved(false)}},[s])
   useEffect(()=>{if(dialog)dialogRef.current?.showModal();else dialogRef.current?.close()},[dialog])
   useEffect(()=>{if(panelRef.current)panelRef.current.scrollTop=0},[s.step,s.phase])
-  useEffect(()=>{speak(s.phase==='done'?stage.resultCue:[stage.cue,...stage.actionCue?[stage.actionCue]:[]])},[])
+  useEffect(()=>{speak(s.phase==='done'?stage.resultCue:[stage.cue,...stage.actionCue?[stage.actionCue]:[]],true)},[])
+  useEffect(()=>{
+    if(!s.motion)return
+    const motion=s.motion,step=s.step,burning=motion==='burn',from=burning?s.burned:s.water,to=burning?3:motion==='water-in'?1:-1
+    const duration=burning?6000*(3-from)/3:3200*Math.abs(to-from),start=performance.now()
+    let frame=0,last=0
+    if(timer.current!==null)clearTimeout(timer.current);timer.current=null
+    setHint({text:burning?'加速观察：蜡烛逐渐变短，留意焰心与像的移动方向。':motion==='water-in'?'正在注水，透镜逐渐变鼓，观察光线会聚位置的变化。':'正在抽水，透镜逐渐变扁，观察光线会聚位置的变化。',tone:'tip'})
+    const tick=(now:number)=>{
+      const progress=duration>0?Math.min(1,(now-start)/duration):1
+      if(now-last>=32||progress===1){
+        last=now
+        const value=progress===1?to:from+(to-from)*progress
+        setState(prev=>prev.step!==step||prev.motion!==motion?prev:{...prev,...burning?{burned:value,height:value}:{water:value},motion:progress===1?null:motion})
+      }
+      if(progress<1)frame=requestAnimationFrame(tick)
+      else{
+        setHint({text:burning?'观察到了吗？焰心逐渐下降，清晰的像向上移动。':`水透镜已${motion==='water-in'?'注水，形状变鼓':'抽水，形状变扁'}，现在移动光屏重新对焦。`,tone:'good'})
+        speak(burning?'052':motion==='water-in'?'041':'043')
+        if(burning)encourage('观察完成！焰心向下，实像向上。')
+      }
+    }
+    frame=requestAnimationFrame(tick)
+    return()=>cancelAnimationFrame(frame)
+  },[s.motion,s.step])
   useEffect(()=>()=>{if(timer.current!==null)clearTimeout(timer.current);if(toastTimer.current!==null)clearTimeout(toastTimer.current)},[])
   function patch(values:Partial<LabState>){setState(prev=>({...prev,...values}))}
-  function speak(ids:string|string[]){if(timer.current!==null)clearTimeout(timer.current);timer.current=null;voice.announce(ids)}
+  function speak(ids:string|string[],interrupt=false){if(timer.current!==null)clearTimeout(timer.current);timer.current=null;voice.announce(ids,{interrupt})}
   function encourage(message:string){setToast(message);if(toastTimer.current!==null)clearTimeout(toastTimer.current);toastTimer.current=window.setTimeout(()=>setToast(''),2400)}
   function openTopics(){setDialog('more')}
   function announce(id:string,delay=0){
     if(timer.current!==null)clearTimeout(timer.current);timer.current=null
     const key=`${s.step}:${id}`;if(spoken.current.has(key))return
-    const run=()=>{timer.current=null;spoken.current.add(key);voice.announce(id)}
+    const run=()=>{timer.current=null;spoken.current.add(key);voice.announce(id,{feedback:true})}
     if(delay)timer.current=window.setTimeout(run,delay);else run()
   }
-  function jump(step:number,base=s){
+  function jump(step:number,base=s,interrupt=true){
     if(timer.current!==null)clearTimeout(timer.current);timer.current=null;spoken.current.clear()
     const next=selectStep(base,step);setState(next);setAnswers([]);setErrors([]);setHint(null);setGraph(stages[next.step].id==='graph');setDialog(null);setToast('')
-    const target=stages[next.step];speak([target.cue,...target.actionCue?[target.actionCue]:[]])
+    const target=stages[next.step];speak([target.cue,...target.actionCue?[target.actionCue]:[]],interrupt)
   }
   function complete(){patch({phase:'done',completedSteps:[...new Set([...s.completedSteps,s.step])]});setHint({text:summary?'整节课完成！用这张总表回顾五种成像情况。':'观察与判断完成，可以继续下一步。',tone:'good'})}
-  function next(){jump(Math.min(stages.length-1,s.step+1),stage.id==='more'?{...s,completedSteps:[...new Set([...s.completedSteps,s.step])]}:s)}
-  function move(kind:'u'|'screen'|'height'|'cover',value:number){
-    if(s.phase!=='adjust')return
-    let adjusted=value
-    if(kind==='u'&&stage.id==='graph'&&Math.abs(value-20)<=1.2)adjusted=20
-    if(kind==='u'&&stage.targetU&&Math.abs(value-stage.targetU)<=1.2)adjusted=stage.targetU
-    if(kind==='height'&&Math.abs(value)<=.4)adjusted=0
-    if(kind==='screen'&&stage.parallel&&Math.abs(value-10)<=1.2)adjusted=10
-    if(kind==='screen'){
-      const predicted=physicsFor({...s,screen:value}).v
-      if(predicted>0&&Number.isFinite(predicted)&&Math.abs(value-predicted)<=1.1)adjusted=Math.round(predicted*10)/10
-    }
+  function next(){jump(Math.min(stages.length-1,s.step+1),s,false)}
+  function move(kind:'u'|'screen'|'height'|'cover',value:number,tolerance=matchMedia('(pointer: coarse)').matches?1.7:1.2){
+    if(s.phase!=='adjust'||s.motion)return
+    const adjusted=snapAdjustment(s,kind,value,tolerance)
     const values:Partial<LabState>={[kind]:adjusted,touched:true}
     if(kind==='screen')values.scanned=[Math.min(s.scanned[0],value),Math.max(s.scanned[1],value)]
     const next={...s,...values},physics=physicsFor(next)
@@ -114,25 +132,31 @@ export default function App(){
     if(timer.current!==null)clearTimeout(timer.current);spoken.current.clear();setState({...next,glasses:kind});setAnswers([]);setErrors([]);setHint({text:'眼镜已经装好，移动光屏重新找到清晰像。',tone:'tip'});speak(kind==='near'?'035':'037')
   }
   function water(n:number){
+    if(s.motion||s.water===n)return
     const target=stages.findIndex(st=>st.id===(n===1?'water-in':'water-out'))
-    if(target!==s.step){if(timer.current!==null)clearTimeout(timer.current);spoken.current.clear();setState({...selectStep(s,target),waterInstalled:true,water:n,touched:true});setAnswers([]);setErrors([])}else patch({water:n,touched:true})
-    setHint({text:`水透镜已${n===1?'注水，形状变鼓':'抽水，形状变扁'}，物距保持不变，重新移动光屏对焦。`,tone:'tip'});speak(n===1?'041':'043')
+    const base=target===s.step?s:{...selectStep(s,target),waterInstalled:true,water:s.water,u:s.u,screen:s.screen}
+    setState({...base,touched:true,motion:n===1?'water-in':'water-out'});setAnswers([]);setErrors([])
+    spoken.current.clear()
+  }
+  function burn(){
+    if(s.motion||s.burned>=3)return
+    patch({lit:true,motion:'burn'})
   }
   function cause(index:number){
     patch({causes:[...new Set([...s.causes,index])],u:[15,8,11][index],screen:[30,24,38][index],height:index===0?-6:0})
     setHint({text:['焰心偏离主光轴，像可能移出光屏。先调整三个中心的高度。','物体在焦点以内，成虚像，光屏无法承接。','清晰像可能超出光具座范围。'][index],tone:'tip'});speak(['048','049','050'][index]);if(s.causes.length===2)encourage('排查完整了，三种原因都看过啦！')
   }
-  function reset(){setState(fresh());setAnswers([]);setErrors([]);setHint(null);setGraph(false);setDialog(null);spoken.current.clear();speak(['001','002'])}
+  function reset(){setState(fresh());setAnswers([]);setErrors([]);setHint(null);setGraph(false);setDialog(null);spoken.current.clear();speak(['001','002'],true)}
   const guidance=hint?.text||(s.phase==='answer'?question?.hint:s.phase==='done'?'已完成本题，可以继续下一步，也可以切换题型。':stage.task)||stage.task
   const installGlasses=stage.id.includes('glasses'),waterStage=stage.id.startsWith('water-')
-  const canControls=s.phase==='adjust',screenEnabled=canControls&&(!installGlasses||s.glasses!=='none')&&(!waterStage||s.waterInstalled)&&!(stage.id==='graph'&&!s.touched)
+  const canControls=s.phase==='adjust'&&!s.motion,screenEnabled=canControls&&(!installGlasses||s.glasses!=='none')&&(!waterStage||s.waterInstalled)&&!(stage.id==='graph'&&!s.touched)
   return <div className={`app curriculum-app${summary?' summary-view':''}`}>
-    <header className="topbar"><div className="brand"><span className="brand-mark"><Focus size={19}/></span><strong>物理实验室</strong><span className="course-title">凸透镜 · 教材探究</span></div><div className="header-actions"><span className="save-note">{saved?'进度已保存':'进度暂未保存'}</span><button className="icon-button" aria-label="更多题型" title="更多题型" onClick={()=>setDialog('more')}><LayoutGrid size={18}/></button><button className="icon-button" aria-label="查看步骤提示" title="查看步骤提示" onClick={()=>setDialog('help')}><HelpCircle size={18}/></button><button className="icon-button" aria-label="重新开始实验" title="重新开始实验" onClick={()=>setDialog('reset')}><RotateCcw size={18}/></button></div></header>
+    <header className="topbar"><div className="brand"><span className="brand-mark"><Focus size={19}/></span><strong>物理实验室</strong><span className="course-title">凸透镜 · 教材探究</span></div><div className="header-actions"><span className="save-note">{saved?'进度已保存':'进度暂未保存'}</span><button className="icon-button" aria-label="返回实验室首页" title="返回实验室首页" onClick={onHome}><House size={18}/></button><button className="icon-button" aria-label="查看步骤提示" title="查看步骤提示" onClick={()=>setDialog('help')}><HelpCircle size={18}/></button><button className="icon-button" aria-label="重新开始实验" title="重新开始实验" onClick={()=>setDialog('reset')}><RotateCcw size={18}/></button></div></header>
     <main className="main"><nav className="step-nav" aria-label="实验题型"><button className="step-select" aria-label="选择实验题型" onClick={openTopics}><span>当前题型</span><strong title={`题型 ${currentGroup+1} · ${types[currentGroup].name}`}><span className="current-topic-number">题型 {currentGroup+1}</span><span className="current-topic-name">{types[currentGroup].name}</span></strong><ChevronDown size={16}/></button><span className="progress-caption">题型 {currentGroup+1} / {groups.length}<span className="completion-count"> · 已完成 {s.completedSteps.length} / {stages.length} 小节</span></span></nav>
       <div className="question-line"><span className="type-tag">题型 {currentGroup+1}</span><h1>{s.phase==='answer'?question?.prompt||stage.task:stage.task}</h1></div>
-      {summary?<><ConclusionTable/><div className="summary-actions"><button className="secondary-button" onClick={openTopics}><LayoutGrid size={16}/>回看题型</button><button className="secondary-button" onClick={downloadRecords}><ArrowDownToLine size={16}/>下载规律表</button><button className="secondary-button" onClick={()=>window.print()}><Printer size={16}/>打印规律表</button></div></>:<div className="content-grid"><div className="left-workspace">
+      {summary?<><ConclusionTable/><div className="summary-actions"><button className="secondary-button" onClick={openTopics}><LayoutGrid size={16}/>回看题型</button><button className="secondary-button" onClick={()=>void downloadRecords().catch(()=>encourage('也可以直接截图保存这张规律表。'))}><ArrowDownToLine size={16}/>{nativeApp?'保存或分享规律表':'下载规律表'}</button>{!nativeApp&&<button className="secondary-button" onClick={()=>window.print()}><Printer size={16}/>打印规律表</button>}</div></>:<div className="content-grid"><div className="left-workspace">
         {stage.id==='graph'&&s.touched&&<div className="view-switch" role="tablist" aria-label="图像实验视图"><button role="tab" aria-selected={!graph} onClick={()=>setGraph(false)}>光具座</button><button role="tab" aria-selected={graph} onClick={()=>setGraph(true)}>物距—像距图像</button></div>}
-        {stage.id==='graph'&&s.touched&&graph?<DistanceGraph state={s} onEqual={showEqualPosition}/>:<Bench state={s} onPlace={place} onObject={n=>move('u',n)} onScreen={n=>move('screen',n)} onHeight={n=>move('height',n)} onCover={n=>move('cover',n)} onMisplace={()=>{setHint({text:'还差一点点，对准圆形标记再松手。',tone:'warn'});announce('old-02')}}/>}
+        {stage.id==='graph'&&s.touched&&graph?<DistanceGraph state={s} onEqual={showEqualPosition}/>:<Bench state={s} onPlace={place} onObject={(n,t)=>move('u',n,t)} onScreen={(n,t)=>move('screen',n,t)} onHeight={(n,t)=>move('height',n,t)} onCover={n=>move('cover',n)} onMisplace={()=>{setHint({text:'还差一点点，对准圆形标记再松手。',tone:'warn'});announce('old-02')}}/>}
         <MentorPrompt guide={{...voice,close:()=>{if(timer.current!==null)clearTimeout(timer.current);timer.current=null;voice.close()}}} detail={guidance} tone={hint?.tone||'tip'}/>
       </div><div className="right-workspace"><ScreenStatus state={s}/><aside className="action-panel" aria-label="当前步骤操作"><div className="panel-index"><span>{s.phase==='done'?'本节完成':s.phase==='answer'?'观察后作答':s.phase==='observe'?'先观察结果':stage.title}</span><strong>{s.step+1} / {stages.length}</strong></div>
         {question&&<div className="phase-indicators"><span className={s.phase==='adjust'?'current':'passed'}>操作</span><span className={s.phase==='observe'?'current':s.phase==='answer'||s.phase==='done'?'passed':''}>观察</span><span className={s.phase==='answer'?'current':s.phase==='done'?'passed':''}>作答</span></div>}
@@ -142,22 +166,21 @@ export default function App(){
             {stage.id==='setup'&&<div className="equipment-list">{['平行光源','凸透镜','光屏'].map((name,i)=><span key={name} className={s.equipment>i?'checked':''}>{s.equipment>i?<Check size={14}/>:i+1}{name}</span>)}</div>}
             {stage.id==='graph'&&!s.touched&&<button className="secondary-button" onClick={()=>{patch({u:20,screen:20,touched:true});setGraph(true);speak('006')}}><Plus size={16}/>安装蜡烛</button>}
             {stage.id==='f-source'&&<button className="secondary-button" disabled={s.source==='F'} onClick={()=>{patch({source:'F'});speak('011')}}><ArrowLeftRight size={16}/>{s.source==='F'?'F 光源已安装':'换成 F 光源'}</button>}
-            {stage.height&&<Slider label="焰心高度偏移" value={s.height} min={-6} max={6} disabled={!canControls} onChange={n=>move('height',n)}/>}
-            {stage.object&&(stage.id!=='graph'||s.touched)&&<Slider label="物距 u" value={s.u} min={stage.id==='graph'?14:5} max={35} onChange={n=>move('u',n)} disabled={!canControls}/>}
+            {stage.height&&<Slider label="焰心高度偏移" value={s.height} min={-6} max={6} disabled={!canControls} onChange={(n,t)=>move('height',n,t)}/>}
+            {stage.object&&(stage.id!=='graph'||s.touched)&&<Slider label="物距 u" value={s.u} min={stage.id==='graph'?14:5} max={35} onChange={(n,t)=>move('u',n,t)} disabled={!canControls}/>}
             {installGlasses&&<div className="mode-buttons" aria-label="选择眼镜"><button className={s.glasses==='near'?'selected':''} onClick={()=>glasses('near')}><Glasses size={15}/>近视镜</button><button className={s.glasses==='far'?'selected':''} onClick={()=>glasses('far')}><Glasses size={15}/>远视镜</button></div>}
-            {waterStage&&(!s.waterInstalled?<button className="secondary-button" onClick={()=>{patch({waterInstalled:true});speak('040')}}><Plus size={16}/>安装水透镜</button>:<div className="mode-buttons" aria-label="水透镜操作"><button className={s.water===1?'selected':''} onClick={()=>water(1)}><Droplets size={15}/>注水</button><button className={s.water===-1?'selected':''} onClick={()=>water(-1)}><Droplets size={15}/>抽水</button></div>)}
-            {stage.screenMove&&!s.throughLens&&<Slider label="光屏距透镜" value={s.screen} min={5} max={38} disabled={!screenEnabled} onChange={n=>move('screen',n)}/>}
+            {waterStage&&(!s.waterInstalled?<button className="secondary-button" onClick={()=>{patch({waterInstalled:true});speak('040')}}><Plus size={16}/>安装水透镜</button>:<div className="mode-buttons" aria-label="水透镜操作"><button className={s.water===1||s.motion==='water-in'?'selected':''} disabled={!!s.motion||s.water===1} onClick={()=>water(1)}><Droplets size={15}/>{s.motion==='water-in'?'注水中…':'注水'}</button><button className={s.water===-1||s.motion==='water-out'?'selected':''} disabled={!!s.motion||s.water===-1} onClick={()=>water(-1)}><Droplets size={15}/>{s.motion==='water-out'?'抽水中…':'抽水'}</button></div>)}
+            {stage.screenMove&&!s.throughLens&&<Slider label="光屏距透镜" value={s.screen} min={5} max={38} disabled={!screenEnabled} onChange={(n,t)=>move('screen',n,t)}/>}
             {stage.id==='graph'&&s.touched&&<><button className="secondary-button" onClick={showEqualPosition}><Focus size={16}/>查看物距＝像距的位置</button><button className="secondary-button" disabled={!p.focused} onClick={record}><Plus size={15}/>记录此组数据{s.samples.length>0?`（已记录 ${s.samples.length} 组）`:''}</button></>}
             {stage.id==='virtual'&&<button className="secondary-button" disabled={!scanned||s.throughLens} onClick={()=>{patch({throughLens:true});setHint({text:'从透镜另一侧看，比较像的正倒与大小。',tone:'good'});speak('old-22')}}><EyeIcon/>{s.throughLens?'正在透镜另一侧观察':'移开光屏，透过透镜观察'}</button>}
             {stage.id==='cover'&&<Slider label="透镜遮挡比例" value={s.cover} min={0} max={75} unit="%" step={5} onChange={n=>move('cover',n)}/>}
             {stage.id==='causes'&&<div className="cause-list">{['三心不同高','物体在焦点内','光具座太短'].map((text,i)=><button key={text} className={s.causes.includes(i)?'visited':''} onClick={()=>cause(i)}>{s.causes.includes(i)?<Check size={14}/>:i+1}{text}</button>)}</div>}
-            {stage.id==='burn'&&<><div className="mode-buttons"><button onClick={()=>patch({lit:false,burned:0,height:0})}><RotateCcw size={15}/>换新蜡烛</button><button disabled={s.burned>=3} onClick={()=>{if(!s.lit)patch({lit:true});else patch({burned:Math.min(3,s.burned+1),height:Math.min(3,s.burned+1)})}}><FlameIcon size={15}/>{s.lit?'继续燃烧':'点燃蜡烛'}</button></div><p>焰心下降了，观察光屏上像的位置</p></>}
+            {stage.id==='burn'&&<><div className="mode-buttons"><button onClick={()=>{patch({lit:false,burned:0,height:0,motion:null});setHint(null);speak('051')}}><RotateCcw size={15}/>换新蜡烛</button><button disabled={!!s.motion||s.burned>=3} onClick={burn}><FlameIcon size={15}/>{s.motion==='burn'?'燃烧中…':s.burned>=3?'观察完成':'点燃蜡烛'}</button></div><p>{s.lit?'加速观察：比较焰心与像的移动方向。':'点燃后，观察蜡烛逐渐变短的过程。'}</p></>}
             {stage.id==='swap'&&<button className="secondary-button" disabled={s.swapped} onClick={()=>{patch({swapped:true,u:15,screen:30});setHint({text:'蜡烛与光屏已在两侧互换。透镜不动，观察清晰像的大小。',tone:'good'})}}><ArrowLeftRight size={16}/>{s.swapped?'两侧位置已互换':'互换蜡烛与光屏'}</button>}
-            {stage.id==='more'&&<button className="secondary-button" onClick={openTopics}><LayoutGrid size={16}/>更多题型</button>}
             {question&&<div className={`alignment ${isReady?'ready':''}`}>{isReady?'操作已完成，先观察结果。':hint?.text||stage.task}</div>}
           </>}
         </div>
-        <div className="panel-footer"><div className="footer-navigation"><button className="back-action" aria-label="上一步" title="上一步" disabled={s.step===0} onClick={()=>jump(s.step-1)}><ArrowLeft size={16}/></button>{s.phase==='done'||stage.id==='more'?<button className="primary-button guided-action" onClick={next}>进入下一步<ArrowRight size={16}/></button>:s.phase==='answer'?<button className="primary-button" disabled={!question?.fields.every((_,i)=>!!answers[i]?.trim())} onClick={submit}>确认答案<Check size={16}/></button>:question?<button className={`primary-button ${isReady||s.phase==='observe'?'guided-action':''}`} disabled={!isReady&&s.phase!=='observe'} onClick={observe}>{s.phase==='observe'?'已观察，开始答题':'确认位置，观察结果'}<ArrowRight size={16}/></button>:<button className="primary-button" disabled={!isReady} onClick={next}>进入下一步<ArrowRight size={16}/></button>}</div>{(isReady||s.phase==='done'||s.phase==='observe')&&<span className="compact-next-note"><CheckCircle2 size={13}/>可以继续下一步</span>}</div>
+        <div className="panel-footer"><div className="footer-navigation"><button className="back-action" aria-label="上一步" title="上一步" disabled={s.step===0} onClick={()=>jump(s.step-1)}><ArrowLeft size={16}/></button>{s.phase==='done'?<button className="primary-button guided-action" onClick={next}>进入下一步<ArrowRight size={16}/></button>:s.phase==='answer'?<button className="primary-button" disabled={!question?.fields.every((_,i)=>!!answers[i]?.trim())} onClick={submit}>确认答案<Check size={16}/></button>:question?<button className={`primary-button ${isReady||s.phase==='observe'?'guided-action':''}`} disabled={!isReady&&s.phase!=='observe'} onClick={observe}>{s.phase==='observe'?'已观察，开始答题':'确认位置，观察结果'}<ArrowRight size={16}/></button>:<button className="primary-button" disabled={!isReady} onClick={next}>进入下一步<ArrowRight size={16}/></button>}</div>{(isReady||s.phase==='done'||s.phase==='observe')&&<span className="compact-next-note"><CheckCircle2 size={13}/>可以继续下一步</span>}</div>
       </aside></div></div>}
     </main>
     {toast&&<div className="feedback-toast" role="status"><Sparkles size={17}/>{toast}</div>}
@@ -165,9 +188,9 @@ export default function App(){
   </div>
 }
 function EyeIcon(){return <Eye size={15}/>}
-function Slider({label,value,min,max,onChange,disabled=false,unit='cm',step=.1}:{label:string;value:number;min:number;max:number;onChange:(n:number)=>void;disabled?:boolean;unit?:string;step?:number}){
+function Slider({label,value,min,max,onChange,disabled=false,unit='cm',step=.1}:{label:string;value:number;min:number;max:number;onChange:(n:number,tolerance?:number)=>void;disabled?:boolean;unit?:string;step?:number}){
   const id=useId()
-  const adjust=(direction:number)=>onChange(Math.max(min,Math.min(max,Math.round((value+direction*step)*10)/10)))
+  const adjust=(direction:number)=>onChange(Math.max(min,Math.min(max,Math.round((value+direction*step)*10)/10)),0)
   return <div className="lab-slider"><label htmlFor={id} className="control-label"><span>{label}</span>{unit==='%'&&<strong>{value.toFixed(0)}%</strong>}</label><div className="slider-track"><button className="range-step" aria-label={`减小${label}`} title="微调" disabled={disabled||value<=min} onClick={()=>adjust(-1)}><Minus size={16}/></button><input id={id} className="aim-slider" type="range" aria-label={`调节${label}`} value={value} min={min} max={max} step={step} disabled={disabled} onChange={e=>onChange(Number(e.target.value))}/><button className="range-step" aria-label={`增大${label}`} title="微调" disabled={disabled||value>=max} onClick={()=>adjust(1)}><Plus size={16}/></button></div></div>
 }
 function DistanceGraph({state:s,onEqual}:{state:LabState;onEqual:()=>void}){

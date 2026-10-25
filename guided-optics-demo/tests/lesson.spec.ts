@@ -50,16 +50,15 @@ async function solve(page:Page,id:string){
       if(id==='virtual')await page.getByRole('button',{name:'移开光屏，透过透镜观察'}).click();break
     case 'screen-far':await slider(page,'光屏距透镜',30);await slider(page,'物距 u',15);break
     case 'screen-near':await slider(page,'光屏距透镜',15);await slider(page,'物距 u',30);break
-    case 'more':return
     case 'cover':await slider(page,'透镜遮挡比例',50);break
     case 'near-glasses':case 'far-glasses':{
       const kind=id==='near-glasses'?'near':'far';await page.getByRole('button',{name:kind==='near'?'近视镜':'远视镜',exact:true}).click()
       await slider(page,'光屏距透镜',optics(30,15,false,false,{glasses:kind,height:0}).v);break
     }
-    case 'water-in':await page.getByRole('button',{name:'安装水透镜'}).click();await page.getByRole('button',{name:'注水',exact:true}).click();await slider(page,'光屏距透镜',8*30/(30-8));break
-    case 'water-out':await page.getByRole('button',{name:'抽水',exact:true}).click();await slider(page,'光屏距透镜',20);break
+    case 'water-in':await page.getByRole('button',{name:'安装水透镜'}).click();await page.getByRole('button',{name:'注水',exact:true}).click();await expect(page.getByRole('slider',{name:'调节光屏距透镜'})).toBeEnabled({timeout:10000});await slider(page,'光屏距透镜',8*30/(30-8));break
+    case 'water-out':await page.getByRole('button',{name:'抽水',exact:true}).click();await expect(page.getByRole('slider',{name:'调节光屏距透镜'})).toBeEnabled({timeout:10000});await slider(page,'光屏距透镜',20);break
     case 'causes':for(const name of ['三心不同高','物体在焦点内','光具座太短'])await page.getByRole('button',{name,exact:false}).click();break
-    case 'burn':await page.getByRole('button',{name:'点燃蜡烛',exact:true}).click();await page.getByRole('button',{name:'继续燃烧',exact:true}).click();await page.getByRole('button',{name:'继续燃烧',exact:true}).click();break
+    case 'burn':await page.getByRole('button',{name:'点燃蜡烛',exact:true}).click();await expect(page.getByRole('button',{name:'确认位置，观察结果'})).toBeEnabled({timeout:10000});break
     case 'swap':await page.getByRole('button',{name:'互换蜡烛与光屏'}).click();break
   }
   if(id==='water-in'||id==='water-out')await page.screenshot({path:`artifacts/${id}.png`,fullPage:true})
@@ -82,22 +81,25 @@ test('thin-lens engine: single lenses, separated spectacles, variable focal leng
   expect(wrongAnswers(stages[index('focus')].question!,['光屏中心'])).toEqual([0]);expect(wrongAnswers(stages[index('focus')].question!,['透镜的焦点'])).toEqual([])
   const virtual=selectStep(fresh(),index('virtual'));virtual.throughLens=true;virtual.scanned=[8,34];const reset=selectStep(virtual,index('focus'));expect(reset.throughLens).toBe(false);expect(reset.scanned).toEqual([24,24]);expect(reset.completedSteps).toEqual([]);expect(ready(reset)).toBe(false);expect(physicsFor(reset).v).toBe(10)
 })
-test('55 ordered voice slots preserve matched legacy audio without requesting unavailable MP3',async({page,request})=>{
-  expect(groups).toHaveLength(15);expect(stages).toHaveLength(25)
+test('55 numbered MP3 files load alongside legacy feedback and respect mute',async({page,request})=>{
+  expect(groups).toHaveLength(14);expect(stages).toHaveLength(24)
   const cues=voiceCatalogue.filter(c=>!c.id.startsWith('old-'));expect(cues).toHaveLength(55)
   expect(cues.map(c=>c.id)).toEqual(Array.from({length:55},(_,i)=>String(i+1).padStart(3,'0')))
   for(const cue of voiceCatalogue){if(cue.audio){expect(existsSync(`public/${cue.audio}`),cue.id).toBe(true);const r=await request.get(cue.audio);expect(r.status()).toBe(200)}}
-  const unavailable:string[]=[];page.on('request',r=>{if(r.url().includes('/voice/curriculum/'))unavailable.push(r.url())})
-  await page.goto('/');await expect(page.locator('.mentor-avatar')).toHaveJSProperty('naturalWidth',256)
+  for(const cue of cues)expect(cue.audio).toBe(`voice/curriculum/${cue.id}.mp3`)
+  const unavailable:string[]=[];page.on('response',r=>{if(r.url().includes('/voice/')&&r.status()>=400)unavailable.push(r.url())})
+  await page.goto('/#/optics');await expect(page.locator('.mentor-avatar')).toHaveJSProperty('naturalWidth',256)
   await expect(page.getByRole('button',{name:/^(播放语音|暂停语音)$/})).toHaveCount(0)
   await jump(page,'focus');await page.getByLabel('更多引导选项').click();await page.getByRole('button',{name:'重播引导'}).click();await expect(page.getByLabel('正在讲解')).toBeVisible()
   await page.getByLabel('更多引导选项').click();await page.getByRole('button',{name:'静音',exact:true}).click();await expect(page.getByLabel('正在讲解')).toHaveCount(0)
   await jump(page,'water-in');await page.getByLabel('更多引导选项').click();await page.getByRole('button',{name:'重播引导'}).click();expect(unavailable).toEqual([])
   await page.reload();await page.getByLabel('更多引导选项').click();await expect(page.getByRole('button',{name:'取消静音'})).toBeVisible();await page.getByRole('button',{name:'关闭引导'}).click();await page.getByRole('button',{name:'打开语音引导'}).click()
 })
-test('topic menu names all 15 types without exposing internal activities',async({page})=>{
-  await page.goto('/');await page.getByRole('button',{name:'选择实验题型'}).click()
-  const dialog=page.getByRole('dialog');await expect(dialog.getByRole('button',{name:/^题型 \d+ · /})).toHaveCount(15)
+test('topic menu names all 14 types without the removed navigation-only topic',async({page})=>{
+  await page.goto('/#/optics');await page.getByRole('button',{name:'选择实验题型'}).click()
+  const dialog=page.getByRole('dialog');await expect(dialog.getByRole('button',{name:/^题型 \d+ · /})).toHaveCount(14)
+  await expect(dialog.getByText('更多拓展实验')).toHaveCount(0)
+  await expect(dialog.getByRole('button',{name:'题型 8 · 探究透镜遮挡的影响',exact:true})).toBeVisible()
   for(const [i,group]of groups.entries())await expect(dialog.getByRole('button',{name:`题型 ${i+1} · ${topicNames[group]}`,exact:true})).toBeVisible()
   await expect(dialog.getByRole('combobox')).toHaveCount(0);await expect(dialog.getByText(/例题|调节焰心|放置器材/)).toHaveCount(0)
   await page.screenshot({path:'artifacts/named-topic-menu.png',fullPage:true})
@@ -107,7 +109,7 @@ test('topic menu names all 15 types without exposing internal activities',async(
 })
 
 test('graph follows both controls, identifies defocus and gives the focal conclusion without a sample quota',async({page})=>{
-  await page.goto('/');await jump(page,'graph');await page.getByRole('button',{name:'安装蜡烛'}).click()
+  await page.goto('/#/optics');await jump(page,'graph');await page.getByRole('button',{name:'安装蜡烛'}).click()
   const point=page.getByTestId('graph-live-point'),conclusion=page.getByTestId('graph-conclusion')
   await expect(point).toHaveAttribute('data-focused','true');await expect(page.getByTestId('distance-curve')).toBeVisible()
   await expect(page.getByTestId('equal-distance-point')).toBeVisible();await expect(conclusion).toContainText('焦距 10 cm')
@@ -129,7 +131,7 @@ test('graph follows both controls, identifies defocus and gives the focal conclu
 })
 test('complete all curriculum activities before answering and export the validated table',async({page})=>{
   test.setTimeout(120000);await page.setViewportSize({width:1440,height:1000})
-  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('/')
+  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('/#/optics')
   for(const stage of stages){
     await expect(page.locator('.current-topic-number')).toHaveText(`题型 ${groups.indexOf(stage.group)+1}`)
     if(stage.id==='summary')break
@@ -142,7 +144,7 @@ test('complete all curriculum activities before answering and export the validat
   await page.screenshot({path:'artifacts/curriculum-complete.png',fullPage:true});expect(errors).toEqual([])
 })
 test('free topic navigation, graph data, wrong answers, saved records and reset are independent',async({page})=>{
-  await page.goto('/');await jump(page,'virtual');await slider(page,'光屏距透镜',8);await slider(page,'光屏距透镜',34);await page.getByRole('button',{name:'移开光屏，透过透镜观察'}).click()
+  await page.goto('/#/optics');await jump(page,'virtual');await slider(page,'光屏距透镜',8);await slider(page,'光屏距透镜',34);await page.getByRole('button',{name:'移开光屏，透过透镜观察'}).click()
   await jump(page,'focus');await expect(page.getByRole('button',{name:'确认位置，观察结果'})).toBeDisabled();await slider(page,'光屏距透镜',10.8);await expect(page.getByRole('slider',{name:'调节光屏距透镜'})).toHaveValue('10');await observe(page)
   await page.getByRole('combobox',{name:'这个位置'}).selectOption('光屏中心');await page.getByRole('button',{name:'确认答案'}).click();await expect(page.getByRole('alert')).toBeVisible();await expect(page.getByRole('button',{name:'进入下一步'})).toHaveCount(0)
   await page.getByRole('combobox',{name:'这个位置'}).selectOption('透镜的焦点');await page.getByRole('button',{name:'确认答案'}).click()
@@ -152,13 +154,13 @@ test('free topic navigation, graph data, wrong answers, saved records and reset 
   await page.getByRole('button',{name:'重新开始实验'}).click();await page.getByRole('button',{name:'确认重新开始'}).click();await expect(page.locator('.current-topic-number')).toHaveText('题型 1')
 })
 for(const [width,height]of [[667,375],[844,390],[390,844]])test(`phone layout and enlarged bench drag at ${width}x${height}`,async({page})=>{
-  await page.setViewportSize({width,height});await page.goto('/');await jump(page,'alignment')
+  await page.setViewportSize({width,height});await page.goto('/#/optics');await jump(page,'alignment')
   const fontSize=await page.locator('.control-label').evaluate(el=>parseFloat(getComputedStyle(el).fontSize));expect(fontSize).toBeGreaterThanOrEqual(width>height?14:15)
   if(width>height){const prompt=await page.locator('.mentor-prompt').boundingBox();expect(prompt!.height).toBeLessThanOrEqual(56);const bench=await page.locator('.visual-area').boundingBox();expect(bench!.height).toBeGreaterThan(205)}
   await slider(page,'焰心高度偏移',.3);await expect(page.getByRole('slider',{name:'调节焰心高度偏移'})).toHaveValue('0');await expect(page.getByRole('button',{name:'确认位置，观察结果'})).toHaveClass(/guided-action/)
   await page.screenshot({path:`artifacts/curriculum-phone-${width}.png`,fullPage:true})
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
-  await slider(page,'焰心高度偏移',1);await expect(page.getByRole('button',{name:'确认位置，观察结果'})).toBeDisabled()
+  await slider(page,'焰心高度偏移',2);await expect(page.getByRole('button',{name:'确认位置，观察结果'})).toBeDisabled()
   await jump(page,'small');await page.getByRole('button',{name:'放大实验台'}).click()
   const bench=page.getByRole('dialog',{name:'凸透镜成像实验台'}),b=await bench.boundingBox();expect(b!.width).toBeGreaterThan(width-16);expect(b!.height).toBeGreaterThan(height-16)
   const locations=await page.locator('.diagram-wrap svg').evaluate(el=>{const svg=el as SVGSVGElement,point=(x:number)=>{const p=svg.createSVGPoint();p.x=x;p.y=250;const t=p.matrixTransform(svg.getScreenCTM()!);return{x:t.x,y:t.y}};return{from:point(200),to:point(160)}})

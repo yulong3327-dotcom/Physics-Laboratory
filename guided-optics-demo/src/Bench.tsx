@@ -8,16 +8,17 @@ export function Flame({x=0,y=0,scale=1,ghost=false}:{x?:number;y?:number;scale?:
 function LightObject({x,y,scale=1,source='candle',lit=true}:{x:number;y:number;scale?:number;source?:string;lit?:boolean}){
   return source==='F'?<g transform={`translate(${x} ${y}) scale(${scale})`}><path d="M-9 15V-15H10V-9H-3V-3H7V3H-3V15Z" fill="#edac4e" stroke="#b77730"/></g>:lit?<Flame x={x} y={y} scale={scale}/>:null
 }
-type Props={state:LabState;onPlace:()=>void;onObject:(n:number)=>void;onScreen:(n:number)=>void;onHeight:(n:number)=>void;onCover:(n:number)=>void;onMisplace:()=>void}
+type Props={state:LabState;onPlace:()=>void;onObject:(n:number,tolerance?:number)=>void;onScreen:(n:number,tolerance?:number)=>void;onHeight:(n:number,tolerance?:number)=>void;onCover:(n:number)=>void;onMisplace:()=>void}
 export function Bench({state:s,onPlace,onObject,onScreen,onHeight,onCover,onMisplace}:Props){
   const section=useRef<HTMLElement>(null),svg=useRef<SVGSVGElement>(null),dragging=useRef<'object'|'screen'|'height'|'cover'|null>(null)
+  const grabOffset=useRef(0)
   const [expanded,setExpanded]=useState(false),[compact,setCompact]=useState(()=>matchMedia('(orientation: landscape) and (max-height: 600px)').matches)
   const [dragPoint,setDragPoint]=useState<{x:number;y:number}|null>(null),placeStart=useRef<{x:number;y:number}|null>(null),moved=useRef(false)
   const stage=stages[s.step],parallel=!!stage.parallel,placing=stage.id==='setup'&&s.equipment<3
   const sign=s.swapped?-1:1,objectX=460-sign*s.u*10,screenX=460+sign*s.screen*10,objectY=250+s.height*10
   const installed=stage.id!=='graph'||s.touched
   const p=physicsFor(s),f=focalLength(s),active=s.equipment===3&&installed&&!(stage.id==='burn'&&!s.lit)
-  const adjusting=s.phase==='adjust',canObject=!!stage.object&&adjusting&&installed,canScreen=!!stage.screenMove&&adjusting&&!s.throughLens&&installed&&(!stage.id.includes('glasses')||s.glasses!=='none')&&(!stage.id.startsWith('water-')||s.waterInstalled),canHeight=!!stage.height&&adjusting,canCover=stage.id==='cover'&&adjusting
+  const adjusting=s.phase==='adjust'&&!s.motion,canObject=!!stage.object&&adjusting&&installed,canScreen=!!stage.screenMove&&adjusting&&!s.throughLens&&installed&&(!stage.id.includes('glasses')||s.glasses!=='none')&&(!stage.id.startsWith('water-')||s.waterInstalled),canHeight=!!stage.height&&adjusting,canCover=stage.id==='cover'&&adjusting
   const names=[parallel?'平行光源':'蜡烛',s.waterInstalled?'水透镜':'凸透镜','光屏']
   useEffect(()=>{const media=matchMedia('(orientation: landscape) and (max-height: 600px)'),resize=()=>setCompact(media.matches);media.addEventListener('change',resize);return()=>media.removeEventListener('change',resize)},[])
   useEffect(()=>setExpanded(false),[s.step])
@@ -34,12 +35,19 @@ export function Bench({state:s,onPlace,onObject,onScreen,onHeight,onCover,onMisp
     const matrix=svg.current.getScreenCTM();if(!matrix)return
     const point=svg.current.createSVGPoint();point.x=e.clientX;point.y=e.clientY
     const local=point.matrixTransform(matrix.inverse())
-    if(dragging.current==='object')onObject(clamp(sign*(460-local.x)/10,stage.id==='graph'?14:5,35))
-    if(dragging.current==='screen')onScreen(clamp(sign*(local.x-460)/10,5,38))
-    if(dragging.current==='height')onHeight(clamp((local.y-250)/10,-6,6))
+    const tolerance=e.pointerType==='touch'?Math.min(2.2,Math.max(1.2,10/(matrix.a*10))):1.2
+    if(dragging.current==='object')onObject(clamp(sign*(460-(local.x-grabOffset.current))/10,stage.id==='graph'?14:5,35),tolerance)
+    if(dragging.current==='screen')onScreen(clamp(sign*((local.x-grabOffset.current)-460)/10,5,38),tolerance)
+    if(dragging.current==='height')onHeight(clamp((local.y-grabOffset.current-250)/10,-6,6),tolerance)
     if(dragging.current==='cover')onCover(Math.round(clamp((local.y-120)/2.6,0,75)))
   }
-  function grab(kind:typeof dragging.current,e:React.PointerEvent<SVGGElement>){dragging.current=kind;svg.current?.setPointerCapture(e.pointerId);e.preventDefault()}
+  function grab(kind:typeof dragging.current,e:React.PointerEvent<SVGGElement>){
+    const matrix=svg.current?.getScreenCTM();if(!matrix||!svg.current)return
+    const point=svg.current.createSVGPoint();point.x=e.clientX;point.y=e.clientY
+    const local=point.matrixTransform(matrix.inverse())
+    grabOffset.current=kind==='height'?local.y-objectY:local.x-(kind==='screen'?screenX:objectX)
+    dragging.current=kind;svg.current.setPointerCapture(e.pointerId);e.preventDefault()
+  }
   function drop(e:React.PointerEvent<HTMLButtonElement>){
     if(!placeStart.current)return
     moved.current=Math.hypot(e.clientX-placeStart.current.x,e.clientY-placeStart.current.y)>12
@@ -60,7 +68,7 @@ export function Bench({state:s,onPlace,onObject,onScreen,onHeight,onCover,onMisp
       {s.equipment>=1&&!parallel&&installed&&<g data-testid="candle" className={canObject||canHeight?'draggable-apparatus':''} onPointerDown={e=>{if(canObject)grab('object',e);if(canHeight)grab('height',e)}}>
         <rect x={objectX-27} y={objectY-25} width="54" height="165" fill="transparent" stroke="transparent" strokeWidth={canObject||canHeight?24:0} vectorEffect="non-scaling-stroke"/>
         {s.source==='candle'?<><rect x={objectX-8} y={objectY+21} width="16" height={Math.max(25,64-s.burned*10)} rx="2" fill="#f1eee8" stroke="#b39b82"/><line x1={objectX} y1={objectY+13} x2={objectX} y2={objectY+24} stroke="#395359" strokeWidth="2"/></>:<rect x={objectX-18} y={objectY-24} width="36" height="48" rx="3" fill="#293c41"/>}
-        <LightObject x={objectX} y={objectY} source={s.source} lit={stage.id!=='burn'||s.lit}/><line x1={objectX} y1={objectY+70} x2={objectX} y2="385" stroke="#879fa3" strokeWidth="6"/><rect x={objectX-20} y="381" width="40" height="8" rx="2" fill="#69868d"/><text x={objectX} y={objectY-39} textAnchor="middle" className="diagram-label">{s.source==='F'?'F 光源':'蜡烛'}</text>
+        <LightObject x={objectX} y={objectY} source={s.source} lit={stage.id!=='burn'||s.lit}/><line x1={objectX} y1={objectY+70-s.burned*10} x2={objectX} y2="385" stroke="#879fa3" strokeWidth="6"/><rect x={objectX-20} y="381" width="40" height="8" rx="2" fill="#69868d"/><text x={objectX} y={objectY-39} textAnchor="middle" className="diagram-label">{s.source==='F'?'F 光源':'蜡烛'}</text>
         {(canObject||canHeight)&&<rect x={objectX-28} y={objectY-26} width="56" height="129" rx="7" fill="none" stroke="#d69a57" strokeDasharray="4 4"/>}
       </g>}
       {parallel&&s.equipment>=1&&<g><rect x="49" y="198" width="22" height="104" rx="4" fill="#45636a"/><text x="80" y="173" className="diagram-label">平行光源</text></g>}

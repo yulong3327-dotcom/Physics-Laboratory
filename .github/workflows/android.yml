@@ -1,0 +1,70 @@
+name: Build Android laboratory
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: guided-optics-demo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: guided-optics-demo/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+      - name: Install Android build tools
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - run: npm ci --include=dev
+      - run: npm run build
+      - run: npx cap sync android
+      - name: Build signed APK
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/ailab-release.p12
+          ANDROID_VERSION_CODE: ${{ github.run_number }}
+        run: |
+          test -n "$ANDROID_KEYSTORE"
+          printf '%s' "$ANDROID_KEYSTORE" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
+          chmod 600 "$ANDROID_KEYSTORE_PATH"
+          cd android
+          bash gradlew assembleRelease --no-daemon
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
+      - name: Remove temporary signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/ailab-release.p12"
+      - name: Prepare install package
+        run: |
+          mkdir -p releases
+          cp android/app/build/outputs/apk/release/app-release.apk releases/jingzhun-ai-lab.apk
+          cd releases
+          sha256sum jingzhun-ai-lab.apk > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jingzhun-ai-lab-android
+          path: guided-optics-demo/releases/
+          retention-days: 30
+      - name: Publish Android install package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: android-v1.0.0-build.${{ github.run_number }}
+        run: |
+          gh release create "$RELEASE_TAG" releases/jingzhun-ai-lab.apk releases/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
+            --title "精准学AI实验室 1.0.0" \
+            --notes "安卓手机和平板安装包。内置凸透镜实验、字体和语音。首页竖屏，进入实验后横屏，支持离线使用。"
