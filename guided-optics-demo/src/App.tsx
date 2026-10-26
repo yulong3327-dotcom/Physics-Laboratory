@@ -60,7 +60,7 @@ export default function App({onHome}:{onHome:()=>void}){
     const target=stages[next.step];speak([target.cue,...target.actionCue?[target.actionCue]:[]],interrupt,true)
   }
   function complete(){patch({phase:'done',completedSteps:[...new Set([...s.completedSteps,s.step])]});setHint({text:summary?'整节课完成！用这张总表回顾五种成像情况。':'观察与判断完成，可以继续下一步。',tone:'good'})}
-  function next(){jump(Math.min(stages.length-1,s.step+1),s,false)}
+  function next(){jump(Math.min(stages.length-1,s.step+1))}
   function move(kind:'u'|'screen'|'height',value:number,tolerance=matchMedia('(pointer: coarse)').matches?1.7:1.2){
     if(s.phase!=='adjust'||s.motion)return
     const adjusted=snapAdjustment(s,kind,value,tolerance)

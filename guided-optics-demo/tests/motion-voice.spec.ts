@@ -90,6 +90,30 @@ test('desktop topic 8 matches mobile and plays its queued lesson audio',async({p
   }),{timeout:15000}).toBe(true)
 })
 
+for(const viewport of [{width:844,height:390},{width:1280,height:800}])test(`next step interrupts current voice at ${viewport.width}x${viewport.height}`,async({page})=>{
+  await page.setViewportSize(viewport)
+  await page.addInitScript(({key,saved})=>{
+    localStorage.setItem(key,JSON.stringify(saved))
+    const NativeAudio=window.Audio
+    const audios:HTMLAudioElement[]=[]
+    Object.assign(window,{lessonAudios:audios})
+    window.Audio=class extends NativeAudio{constructor(src?:string){super(src);audios.push(this)}}
+  },{key:STORAGE_KEY,saved:{...fresh(),step:1,phase:'done',equipment:3}})
+  const playing=()=>page.evaluate(()=>{
+    const audio=(window as unknown as {lessonAudios:HTMLAudioElement[]}).lessonAudios[0]
+    return audio&&!audio.paused?audio.src.split('/').pop():null
+  })
+  await page.goto('/#/optics')
+  await page.getByLabel('更多引导选项').click()
+  await page.getByRole('button',{name:'重播引导'}).click()
+  await expect.poll(playing).toBe('004.mp3')
+  await page.getByRole('button',{name:'进入下一步',exact:true}).click()
+  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue','005')
+  await expect.poll(playing).toBe('005.mp3')
+  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue','006',{timeout:15000})
+  await expect.poll(playing).toBe('006.mp3')
+})
+
 test('water changes continuously, updates rays and waits for completion before refocusing',async({page})=>{
   await page.goto('/#/optics');await topic(page,'water-in');await page.getByRole('button',{name:'安装水透镜'}).click()
   const lens=page.getByTestId('main-lens').locator('path').first(),rays=page.getByTestId('ray-paths')
