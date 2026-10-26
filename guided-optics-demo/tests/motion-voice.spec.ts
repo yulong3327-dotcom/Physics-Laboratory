@@ -60,12 +60,34 @@ test('real MP3 playback continues during operations and stops only for topic swi
   await topic(page,'water-in');await expect.poll(playing).toEqual([])
   await page.getByLabel('更多引导选项').click();await page.getByRole('button',{name:'取消静音',exact:true}).click()
   await expect.poll(async()=> (await playing()).map(a=>a.file)).toEqual(['039.mp3'])
-  await topic(page,'cover')
-  await expect.poll(async()=> (await playing()).map(a=>a.file)).toEqual(['030.mp3'])
+  await topic(page,'near-glasses')
+  await expect.poll(async()=> (await playing()).map(a=>a.file)).toEqual(['034.mp3'])
   await page.getByLabel('更多引导选项').click();await page.getByRole('button',{name:'关闭引导',exact:true}).click()
   await expect.poll(playing).toEqual([])
   await page.getByRole('button',{name:'打开语音引导'}).click()
-  await expect.poll(async()=> (await playing()).map(a=>a.file)).toEqual(['030.mp3'])
+  await expect.poll(async()=> (await playing()).map(a=>a.file)).toEqual(['034.mp3'])
+})
+
+test('desktop topic 8 matches mobile and plays its queued lesson audio',async({page})=>{
+  await page.setViewportSize({width:1280,height:800})
+  await page.addInitScript(()=>{
+    const NativeAudio=window.Audio
+    const audios:HTMLAudioElement[]=[]
+    Object.assign(window,{lessonAudios:audios})
+    window.Audio=class extends NativeAudio{constructor(src?:string){super(src);audios.push(this)}}
+  })
+  await page.goto('/#/optics')
+  await topic(page,'near-glasses')
+  await expect(page.locator('.current-topic-number')).toHaveText('题型 8')
+  await expect(page.locator('.current-topic-name')).toHaveText('近视镜与远视镜判断')
+  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue','034')
+  await expect.poll(()=>page.evaluate(()=>(window as unknown as {lessonAudios:HTMLAudioElement[]}).lessonAudios.some(a=>a.src.endsWith('/034.mp3')&&!a.paused))).toBe(true)
+  await page.getByRole('button',{name:'近视镜',exact:true}).click()
+  await expect(page.locator('.mentor-prompt')).toHaveAttribute('data-cue','035',{timeout:15000})
+  await expect.poll(()=>page.evaluate(()=>{
+    const audio=(window as unknown as {lessonAudios:HTMLAudioElement[]}).lessonAudios[0]
+    return audio?.src.endsWith('/035.mp3')&&!audio.paused&&audio.currentTime>0
+  }),{timeout:15000}).toBe(true)
 })
 
 test('water changes continuously, updates rays and waits for completion before refocusing',async({page})=>{
@@ -116,9 +138,16 @@ test('burning continuously shortens the candle, raises its image and can be rest
   await expect(page.getByRole('button',{name:'确认位置，观察结果'})).toBeEnabled()
 })
 
-for(const [oldStep,id]of [[15,'cover'],[19,'water-in'],[22,'burn'],[24,'summary']]as const)test(`saved v3 activity ${oldStep} migrates to ${id}`,async({page})=>{
+for(const [oldStep,id]of [[15,'near-glasses'],[16,'near-glasses'],[19,'water-in'],[22,'burn'],[24,'summary']]as const)test(`saved v3 activity ${oldStep} migrates to ${id}`,async({page})=>{
   await page.addInitScript(({saved})=>localStorage.setItem('guided-optics.curriculum.v3',JSON.stringify(saved)),{saved:{...fresh(),version:3,step:oldStep,equipment:3,completedSteps:[1,15,16,23]}})
   await page.goto('/#/optics')
   const saved=await state(page)
-  expect(stages[saved.step].id).toBe(id);expect(saved.completedSteps).toEqual([1,15,22]);expect(saved.version).toBe(4)
+  expect(stages[saved.step].id).toBe(id);expect(saved.completedSteps).toEqual([1,21]);expect(saved.version).toBe(5)
+})
+
+for(const [oldStep,id]of [[15,'near-glasses'],[18,'water-in'],[21,'burn'],[23,'summary']]as const)test(`saved v4 activity ${oldStep} migrates to ${id}`,async({page})=>{
+  await page.addInitScript(({saved})=>localStorage.setItem('guided-optics.curriculum.v4',JSON.stringify(saved)),{saved:{...fresh(),version:4,step:oldStep,equipment:3,completedSteps:[1,15,16,22]}})
+  await page.goto('/#/optics')
+  const saved=await state(page)
+  expect(stages[saved.step].id).toBe(id);expect(saved.completedSteps).toEqual([1,15,21]);expect(saved.version).toBe(5)
 })

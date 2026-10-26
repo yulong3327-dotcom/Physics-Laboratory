@@ -1,9 +1,9 @@
 import { focalLength, physicsFor, stages, type LabState } from './curriculum'
 
-export type Adjustment = 'u' | 'screen' | 'height' | 'cover'
+export type Adjustment = 'u' | 'screen' | 'height'
 
 export function snapAdjustment(s: LabState, kind: Adjustment, value: number, tolerance: number) {
-  if (tolerance <= 0 || kind === 'cover') return value
+  if (tolerance <= 0) return value
   const stage = stages[s.step]
   let target: number | undefined
   if (kind === 'height') target = 0

@@ -50,7 +50,6 @@ async function solve(page:Page,id:string){
       if(id==='virtual')await page.getByRole('button',{name:'移开光屏，透过透镜观察'}).click();break
     case 'screen-far':await slider(page,'光屏距透镜',30);await slider(page,'物距 u',15);break
     case 'screen-near':await slider(page,'光屏距透镜',15);await slider(page,'物距 u',30);break
-    case 'cover':await slider(page,'透镜遮挡比例',50);break
     case 'near-glasses':case 'far-glasses':{
       const kind=id==='near-glasses'?'near':'far';await page.getByRole('button',{name:kind==='near'?'近视镜':'远视镜',exact:true}).click()
       await slider(page,'光屏距透镜',optics(30,15,false,false,{glasses:kind,height:0}).v);break
@@ -82,7 +81,7 @@ test('thin-lens engine: single lenses, separated spectacles, variable focal leng
   const virtual=selectStep(fresh(),index('virtual'));virtual.throughLens=true;virtual.scanned=[8,34];const reset=selectStep(virtual,index('focus'));expect(reset.throughLens).toBe(false);expect(reset.scanned).toEqual([24,24]);expect(reset.completedSteps).toEqual([]);expect(ready(reset)).toBe(false);expect(physicsFor(reset).v).toBe(10)
 })
 test('55 numbered MP3 files load alongside legacy feedback and respect mute',async({page,request})=>{
-  expect(groups).toHaveLength(14);expect(stages).toHaveLength(24)
+  expect(groups).toHaveLength(13);expect(stages).toHaveLength(23)
   const cues=voiceCatalogue.filter(c=>!c.id.startsWith('old-'));expect(cues).toHaveLength(55)
   expect(cues.map(c=>c.id)).toEqual(Array.from({length:55},(_,i)=>String(i+1).padStart(3,'0')))
   for(const cue of voiceCatalogue){if(cue.audio){expect(existsSync(`public/${cue.audio}`),cue.id).toBe(true);const r=await request.get(cue.audio);expect(r.status()).toBe(200)}}
@@ -95,11 +94,12 @@ test('55 numbered MP3 files load alongside legacy feedback and respect mute',asy
   await jump(page,'water-in');await page.getByLabel('更多引导选项').click();await page.getByRole('button',{name:'重播引导'}).click();expect(unavailable).toEqual([])
   await page.reload();await page.getByLabel('更多引导选项').click();await expect(page.getByRole('button',{name:'取消静音'})).toBeVisible();await page.getByRole('button',{name:'关闭引导'}).click();await page.getByRole('button',{name:'打开语音引导'}).click()
 })
-test('topic menu names all 14 types without the removed navigation-only topic',async({page})=>{
+test('topic menu names all 13 types without removed activities',async({page})=>{
   await page.goto('/#/optics');await page.getByRole('button',{name:'选择实验题型'}).click()
-  const dialog=page.getByRole('dialog');await expect(dialog.getByRole('button',{name:/^题型 \d+ · /})).toHaveCount(14)
+  const dialog=page.getByRole('dialog');await expect(dialog.getByRole('button',{name:/^题型 \d+ · /})).toHaveCount(13)
   await expect(dialog.getByText('更多拓展实验')).toHaveCount(0)
-  await expect(dialog.getByRole('button',{name:'题型 8 · 探究透镜遮挡的影响',exact:true})).toBeVisible()
+  await expect(dialog.getByText('探究透镜遮挡的影响')).toHaveCount(0)
+  await expect(dialog.getByRole('button',{name:'题型 8 · 近视镜与远视镜判断',exact:true})).toBeVisible()
   for(const [i,group]of groups.entries())await expect(dialog.getByRole('button',{name:`题型 ${i+1} · ${topicNames[group]}`,exact:true})).toBeVisible()
   await expect(dialog.getByRole('combobox')).toHaveCount(0);await expect(dialog.getByText(/例题|调节焰心|放置器材/)).toHaveCount(0)
   await page.screenshot({path:'artifacts/named-topic-menu.png',fullPage:true})
@@ -167,7 +167,7 @@ for(const [width,height]of [[667,375],[844,390],[390,844]])test(`phone layout an
   await page.mouse.move(locations.from.x,locations.from.y);await page.mouse.down();await page.mouse.move(locations.to.x,locations.to.y,{steps:12});await page.mouse.up()
   await page.screenshot({path:`artifacts/curriculum-expanded-${width}.png`})
   await page.getByRole('button',{name:'收起实验台'}).press('Escape');await expect(bench).toHaveCount(0);await expect(page.getByRole('slider',{name:'调节物距 u'})).toHaveValue('30')
-  for(const id of ['graph','cover','near-glasses','water-in','causes','burn','swap']){await jump(page,id);expect(await page.evaluate(()=>document.documentElement.scrollWidth),id).toBeLessThanOrEqual(width)}
+  for(const id of ['graph','near-glasses','water-in','causes','burn','swap']){await jump(page,id);expect(await page.evaluate(()=>document.documentElement.scrollWidth),id).toBeLessThanOrEqual(width)}
   await jump(page,'graph');await page.getByRole('button',{name:'安装蜡烛'}).click()
   await expect(page.getByTestId('graph-live-point')).toBeVisible();await expect(page.getByTestId('graph-conclusion')).toBeVisible()
   await page.screenshot({path:`artifacts/graph-phone-${width}.png`,fullPage:true})

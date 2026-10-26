@@ -8,9 +8,9 @@ export function Flame({x=0,y=0,scale=1,ghost=false}:{x?:number;y?:number;scale?:
 function LightObject({x,y,scale=1,source='candle',lit=true}:{x:number;y:number;scale?:number;source?:string;lit?:boolean}){
   return source==='F'?<g transform={`translate(${x} ${y}) scale(${scale})`}><path d="M-9 15V-15H10V-9H-3V-3H7V3H-3V15Z" fill="#edac4e" stroke="#b77730"/></g>:lit?<Flame x={x} y={y} scale={scale}/>:null
 }
-type Props={state:LabState;onPlace:()=>void;onObject:(n:number,tolerance?:number)=>void;onScreen:(n:number,tolerance?:number)=>void;onHeight:(n:number,tolerance?:number)=>void;onCover:(n:number)=>void;onMisplace:()=>void}
-export function Bench({state:s,onPlace,onObject,onScreen,onHeight,onCover,onMisplace}:Props){
-  const section=useRef<HTMLElement>(null),svg=useRef<SVGSVGElement>(null),dragging=useRef<'object'|'screen'|'height'|'cover'|null>(null)
+type Props={state:LabState;onPlace:()=>void;onObject:(n:number,tolerance?:number)=>void;onScreen:(n:number,tolerance?:number)=>void;onHeight:(n:number,tolerance?:number)=>void;onMisplace:()=>void}
+export function Bench({state:s,onPlace,onObject,onScreen,onHeight,onMisplace}:Props){
+  const section=useRef<HTMLElement>(null),svg=useRef<SVGSVGElement>(null),dragging=useRef<'object'|'screen'|'height'|null>(null)
   const grabOffset=useRef(0)
   const [expanded,setExpanded]=useState(false),[compact,setCompact]=useState(()=>matchMedia('(orientation: landscape) and (max-height: 600px)').matches)
   const [dragPoint,setDragPoint]=useState<{x:number;y:number}|null>(null),placeStart=useRef<{x:number;y:number}|null>(null),moved=useRef(false)
@@ -18,7 +18,7 @@ export function Bench({state:s,onPlace,onObject,onScreen,onHeight,onCover,onMisp
   const sign=s.swapped?-1:1,objectX=460-sign*s.u*10,screenX=460+sign*s.screen*10,objectY=250+s.height*10
   const installed=stage.id!=='graph'||s.touched
   const p=physicsFor(s),f=focalLength(s),active=s.equipment===3&&installed&&!(stage.id==='burn'&&!s.lit)
-  const adjusting=s.phase==='adjust'&&!s.motion,canObject=!!stage.object&&adjusting&&installed,canScreen=!!stage.screenMove&&adjusting&&!s.throughLens&&installed&&(!stage.id.includes('glasses')||s.glasses!=='none')&&(!stage.id.startsWith('water-')||s.waterInstalled),canHeight=!!stage.height&&adjusting,canCover=stage.id==='cover'&&adjusting
+  const adjusting=s.phase==='adjust'&&!s.motion,canObject=!!stage.object&&adjusting&&installed,canScreen=!!stage.screenMove&&adjusting&&!s.throughLens&&installed&&(!stage.id.includes('glasses')||s.glasses!=='none')&&(!stage.id.startsWith('water-')||s.waterInstalled),canHeight=!!stage.height&&adjusting
   const names=[parallel?'平行光源':'蜡烛',s.waterInstalled?'水透镜':'凸透镜','光屏']
   useEffect(()=>{const media=matchMedia('(orientation: landscape) and (max-height: 600px)'),resize=()=>setCompact(media.matches);media.addEventListener('change',resize);return()=>media.removeEventListener('change',resize)},[])
   useEffect(()=>setExpanded(false),[s.step])
@@ -39,7 +39,6 @@ export function Bench({state:s,onPlace,onObject,onScreen,onHeight,onCover,onMisp
     if(dragging.current==='object')onObject(clamp(sign*(460-(local.x-grabOffset.current))/10,stage.id==='graph'?14:5,35),tolerance)
     if(dragging.current==='screen')onScreen(clamp(sign*((local.x-grabOffset.current)-460)/10,5,38),tolerance)
     if(dragging.current==='height')onHeight(clamp((local.y-grabOffset.current-250)/10,-6,6),tolerance)
-    if(dragging.current==='cover')onCover(Math.round(clamp((local.y-120)/2.6,0,75)))
   }
   function grab(kind:typeof dragging.current,e:React.PointerEvent<SVGGElement>){
     const matrix=svg.current?.getScreenCTM();if(!matrix||!svg.current)return
@@ -56,7 +55,7 @@ export function Bench({state:s,onPlace,onObject,onScreen,onHeight,onCover,onMisp
   }
   return <section ref={section} className={`visual-area ${compact?'compact-bench':''} ${expanded?'bench-expanded':''}`} role={expanded?'dialog':undefined} aria-modal={expanded||undefined} aria-label="凸透镜成像实验台">
     <div className="visual-toolbar"><span className="visual-title"><span className="live-dot"/>光具座 · 实时实验</span><div className="visual-tools"><span className="scale-label">{['setup','focus','graph'].includes(stage.id)?'观察光线与刻度':'实时成像'}</span><button className="bench-expand" title={expanded?'收起实验台':'放大实验台'} aria-label={expanded?'收起实验台':'放大实验台'} onClick={()=>setExpanded(!expanded)}>{expanded?<Minimize2 size={17}/>:<Maximize2 size={17}/>}</button></div></div>
-    <div className="diagram-wrap"><svg ref={svg} viewBox={compact?'40 60 860 375':'0 0 920 480'} role="img" aria-label="蜡烛、凸透镜和光屏实时仿真" onPointerMove={move} onPointerUp={()=>dragging.current=null} onPointerCancel={()=>dragging.current=null} style={{touchAction:canObject||canScreen||canHeight||canCover?'none':'auto'}}>
+    <div className="diagram-wrap"><svg ref={svg} viewBox={compact?'40 60 860 375':'0 0 920 480'} role="img" aria-label="蜡烛、凸透镜和光屏实时仿真" onPointerMove={move} onPointerUp={()=>dragging.current=null} onPointerCancel={()=>dragging.current=null} style={{touchAction:canObject||canScreen||canHeight?'none':'auto'}}>
       <defs><pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="#e6eceb" strokeWidth=".7"/></pattern><linearGradient id="glass"><stop stopColor="#abdae2"/><stop offset=".5" stopColor="#f0fcfb"/><stop offset="1" stopColor="#9dcfdb"/></linearGradient></defs>
       <rect width="920" height="480" fill="#f9fbfa"/><rect width="920" height="480" fill="url(#grid)"/>
       <line x1="48" y1="250" x2="880" y2="250" stroke="#8ea7a8" strokeWidth="1.2" strokeDasharray="8 6"/><text x="810" y="232" className="axis-label">主光轴</text>
@@ -73,7 +72,6 @@ export function Bench({state:s,onPlace,onObject,onScreen,onHeight,onCover,onMisp
       </g>}
       {parallel&&s.equipment>=1&&<g><rect x="49" y="198" width="22" height="104" rx="4" fill="#45636a"/><text x="80" y="173" className="diagram-label">平行光源</text></g>}
       {s.equipment>=3&&!s.throughLens&&<g data-testid="screen" className={canScreen?'draggable-apparatus':''} onPointerDown={e=>{if(canScreen)grab('screen',e)}}><rect x={screenX-19} y="115" width="38" height="275" fill="transparent" stroke="transparent" strokeWidth={canScreen?32:0} vectorEffect="non-scaling-stroke"/><rect x={screenX-4} y="120" width="8" height="260" fill="#e3e9e7" stroke="#75959a" strokeWidth="2"/><rect x={screenX-20} y="381" width="40" height="8" rx="2" fill="#69868d"/><text x={screenX} y="102" textAnchor="middle" className="diagram-label">光屏</text>{active&&p.screenHits.map((hit,i)=><circle key={i} cx={screenX} cy={hit.point.y*10} r="3" fill="#efad60" opacity=".7"/>)}{active&&!parallel&&p.focused&&p.imageY>=12&&p.imageY<=38&&<g opacity={p.brightness}><LightObject x={screenX} y={p.imageY*10} scale={p.magnification} source={s.source}/></g>}</g>}
-      {stage.id==='cover'&&<g data-testid="cover-board" onPointerDown={e=>{if(canCover)grab('cover',e)}} className={canCover?'draggable-apparatus':''}><rect x="443" y="120" width="34" height={s.cover*1.3} fill="#5d6571"/><rect x="443" y={380-s.cover*1.3} width="34" height={s.cover*1.3} fill="#5d6571"/><rect x="443" y={Math.max(106,105+s.cover*1.3)} width="34" height="16" rx="3" fill="#8994a4"/><text x="510" y="128" className="diagram-label">遮光板</text></g>}
       {s.throughLens&&p.v<0&&<g><LightObject x={460+p.v*10} y={p.imageY*10} scale={p.magnification} source={s.source}/><text x={460+p.v*10} y={p.imageY*10-55} textAnchor="middle" className="diagram-label">虚像位置</text></g>}
       {s.throughLens&&<g transform="translate(820 246)" stroke="#377d89" fill="white"><path d="M-21 0Q0 -24 21 0Q0 24 -21 0Z" strokeWidth="2"/><circle r="6" fill="#377d89"/><text x="0" y="42" textAnchor="middle" className="diagram-label">观察眼</text></g>}
       {s.equipment===3&&<g className="measure-lines">{!parallel&&<path d={`M${objectX} 346V353H460V346`} fill="none" stroke="#bc8a54"/>}{!s.throughLens&&<path d={`M460 307V314H${screenX}V307`} fill="none" stroke="#6c9da5"/>}</g>}
@@ -82,7 +80,7 @@ export function Bench({state:s,onPlace,onObject,onScreen,onHeight,onCover,onMisp
     </div>
     {placing&&<div className="equipment-tray"><span>器材托盘</span><button className="tray-piece" aria-label={`拖拽${names[s.equipment]}到指定位置`} onClick={e=>{if(!moved.current)onPlace();moved.current=false;e.preventDefault()}} onPointerDown={e=>{placeStart.current={x:e.clientX,y:e.clientY};moved.current=false;e.currentTarget.setPointerCapture(e.pointerId)}} onPointerMove={e=>{if(placeStart.current)setDragPoint({x:e.clientX,y:e.clientY})}} onPointerUp={drop} onPointerCancel={()=>{placeStart.current=null;setDragPoint(null)}}>{names[s.equipment]}<MoveHorizontal size={15}/></button><small>拖到圆形位置</small></div>}
     {dragPoint&&<div className="drag-ghost" style={{left:dragPoint.x,top:dragPoint.y}}>{names[s.equipment]}</div>}
-    <div className="visual-footer"><span><MoveHorizontal size={14}/>{canHeight?'调整焰心高度':canCover?'上下移动遮光板':canObject?'移动蜡烛与光屏':canScreen?'移动光屏，比较清晰度':'观察物与像的位置关系'}</span><span>光具座刻度 / cm</span></div>
+    <div className="visual-footer"><span><MoveHorizontal size={14}/>{canHeight?'调整焰心高度':canObject?'移动蜡烛与光屏':canScreen?'移动光屏，比较清晰度':'观察物与像的位置关系'}</span><span>光具座刻度 / cm</span></div>
   </section>
 }
 export function ScreenStatus({state:s}:{state:LabState}){

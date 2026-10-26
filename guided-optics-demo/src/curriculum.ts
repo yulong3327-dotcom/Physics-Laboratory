@@ -3,7 +3,7 @@ import { exportTable } from './exportTable'
 export type RecordRow = { v:string; orientation:string; size:string; nature:string }
 export type Phase = 'adjust'|'observe'|'answer'|'done'
 export type LabState = {
-  version:4; step:number; phase:Phase; equipment:number; height:number; u:number; screen:number;
+  version:5; step:number; phase:Phase; equipment:number; height:number; u:number; screen:number;
   throughLens:boolean; records:RecordRow[]; completedSteps:number[]; scanned:[number,number];
   source:'candle'|'F'; glasses:'none'|'near'|'far'; water:number; waterInstalled:boolean;
   cover:number; touched:boolean; swapped:boolean; lit:boolean; burned:number; causes:number[];
@@ -36,7 +36,6 @@ export const stages:Stage[]=[
   {id:'object-near',group:'动态成像',title:'蜡烛靠近透镜',cue:'024',resultCue:'026',u:20,screen:20,object:true,screenMove:true,targetU:15,targetURange:[14,19],task:'先让清晰像出现在二倍焦距附近，再把蜡烛向透镜移动并重新调清光屏。',question:q('蜡烛在焦点外靠近透镜，怎样再次成像？',[select('光屏应','远离透镜',direction),select('像会','放大',sizes)],'物体仍在焦点外，像距随物距减小而增大。')},
   {id:'screen-far',group:'动态成像',title:'先将光屏移远',cue:'027',resultCue:'028',u:20,screen:20,object:true,screenMove:true,screenDirection:'farther',task:'先把光屏移远一些，再移动蜡烛恢复清晰的像。',question:q('光屏远离透镜后，蜡烛应向哪里移动？',[select('蜡烛应','靠近透镜',direction),select('像会','放大',sizes)],'比较蜡烛与透镜之间的距离变化。')},
   {id:'screen-near',group:'动态成像',title:'先将光屏移近',cue:'027',resultCue:'028',u:20,screen:20,object:true,screenMove:true,screenDirection:'nearer',task:'先把光屏移近一些，再移动蜡烛恢复清晰的像。',question:q('光屏靠近透镜后，蜡烛应向哪里移动？',[select('蜡烛应','远离透镜',direction),select('像会','缩小',sizes)],'保持物距在焦点外，比较本次与原来的像大小。')},
-  {id:'cover',group:'透镜遮挡',title:'移动遮光板',cue:'030',actionCue:'031',resultCue:'033',u:30,screen:15,task:'移动遮光板，比较无遮挡、部分遮挡时的像。',question:q('只挡住一部分透镜，光屏上的像怎样变化？',[select('像的完整性','仍然完整',['仍然完整','缺少一半']),select('像的亮度','变暗',['不变','变暗']),select('像的位置与大小','不变',['不变','改变'])],'来自物体各点的光仍能通过未遮挡部分，只是通过的光变少。')},
   {id:'near-glasses',group:'眼镜判断',title:'近视镜的作用',cue:'034',resultCue:'036',u:30,screen:15,screenMove:true,task:'选择近视镜并放到凸透镜前，再移动光屏重新对焦。',question:q('近视镜使成像位置变远，说明它是什么透镜？',[select('透镜类型','凹透镜',['凹透镜','凸透镜']),select('对光的作用','发散',['发散','会聚'])],'比较加入眼镜前后的清晰成像位置。')},
   {id:'far-glasses',group:'眼镜判断',title:'远视镜的作用',cue:'034',resultCue:'038',u:30,screen:15,screenMove:true,task:'选择远视镜并放到凸透镜前，再移动光屏重新对焦。',question:q('远视镜使成像位置变近，说明它是什么透镜？',[select('透镜类型','凸透镜',['凹透镜','凸透镜']),select('对光的作用','会聚',['发散','会聚'])],'比较加入眼镜前后的清晰成像位置。')},
   {id:'water-in',group:'水透镜',title:'注水：透镜变鼓',cue:'039',actionCue:'040',resultCue:'042',u:30,screen:15,screenMove:true,task:'安装水透镜并注水，再移动光屏重新对焦。',question:q('物距不变、仍成实像时，注水使透镜变鼓，会怎样？',[select('焦距','变小',['变小','变大']),select('成像位置','更靠近透镜',['更靠近透镜','更远离透镜'])],'观察透镜变厚前后，清晰像的位置变化。')},
@@ -55,7 +54,6 @@ export const topicNames:Record<string,string>={
   '成像特点与应用':'成像特点与实际应用',
   '实像虚像的判断':'实像与虚像的判断',
   '动态成像':'物像移动的变化规律',
-  '透镜遮挡':'探究透镜遮挡的影响',
   '眼镜判断':'近视镜与远视镜判断',
   '水透镜':'水透镜与焦距变化',
   '无法成像':'无法成像的原因排查',
@@ -63,7 +61,7 @@ export const topicNames:Record<string,string>={
   '像物互换':'物像互换与光路可逆',
   '结课总结':'凸透镜成像规律总结',
 }
-export const STORAGE_KEY='guided-optics.curriculum.v4'
+export const STORAGE_KEY='guided-optics.curriculum.v5'
 export const trials=[
   {u:30,v:'15',condition:'u > 2f',range:'f < v < 2f',orientation:'倒立',size:'缩小',nature:'实像'},
   {u:20,v:'20',condition:'u = 2f',range:'v = 2f',orientation:'倒立',size:'等大',nature:'实像'},
@@ -79,22 +77,27 @@ export const conclusionRows=[
   {condition:'u < f',position:'物体同侧',orientation:'正立',size:'放大',nature:'虚像',application:'放大镜'},
 ]
 export const emptyRow=():RecordRow=>({v:'',orientation:'',size:'',nature:''})
-export const fresh=():LabState=>({version:4,step:0,phase:'adjust',equipment:0,height:0,u:30,screen:24,throughLens:false,records:trials.map(emptyRow),completedSteps:[],scanned:[24,24],source:'candle',glasses:'none',water:0,waterInstalled:false,cover:0,touched:false,swapped:false,lit:false,burned:0,causes:[],samples:[],motion:null})
+export const fresh=():LabState=>({version:5,step:0,phase:'adjust',equipment:0,height:0,u:30,screen:24,throughLens:false,records:trials.map(emptyRow),completedSteps:[],scanned:[24,24],source:'candle',glasses:'none',water:0,waterInstalled:false,cover:0,touched:false,swapped:false,lit:false,burned:0,causes:[],samples:[],motion:null})
 export function selectStep(s:LabState,target:number):LabState{
   const step=Math.max(0,Math.min(stages.length-1,Math.trunc(target))),stage=stages[step]
   return {...fresh(),records:s.records,completedSteps:s.completedSteps,step,equipment:stage.id==='setup'?s.equipment:3,u:stage.u??26,screen:stage.screen??24,scanned:[stage.screen??24,stage.screen??24],height:stage.height?-3:0,waterInstalled:stage.id==='water-out',phase:stage.id==='setup'&&s.equipment===3?'done':'adjust'}
 }
 export function load():LabState{
   try{
-    let raw=JSON.parse(localStorage.getItem(STORAGE_KEY)||localStorage.getItem('guided-optics.curriculum.v3')||'null')
+    let raw=JSON.parse(localStorage.getItem(STORAGE_KEY)||localStorage.getItem('guided-optics.curriculum.v4')||localStorage.getItem('guided-optics.curriculum.v3')||'null')
     if(!raw){const legacy=JSON.parse(localStorage.getItem('guided-optics.imaging.v2')||'null');return legacy?.records?.length===5&&legacy.records.every((r:RecordRow)=>r&&['v','orientation','size','nature'].every(k=>typeof r[k as keyof RecordRow]==='string'))?{...fresh(),records:legacy.records}:fresh()}
-    // Version 3 had a navigation-only activity at index 15. Keep saved progress on the same experiment.
+    // V3 and V4 each had a different removed activity at index 15.
+    let resetRemoved=false
     if(raw.version===3){
-      const removed=raw.step===15
+      resetRemoved=raw.step===15||raw.step===16
       raw={...raw,version:4,motion:null,step:raw.step>15?raw.step-1:raw.step,completedSteps:(Array.isArray(raw.completedSteps)?raw.completedSteps:[]).filter((n:number)=>Number.isInteger(n)&&n!==15).map((n:number)=>n>15?n-1:n)}
-      if(removed)raw=selectStep({...fresh(),records:raw.records,completedSteps:raw.completedSteps},15)
     }
-    if(raw.version!==4||!Number.isInteger(raw.step)||!stages[raw.step]||!['adjust','observe','answer','done'].includes(raw.phase))return fresh()
+    if(raw.version===4){
+      resetRemoved=resetRemoved||raw.step===15
+      raw={...raw,version:5,step:raw.step>15?raw.step-1:raw.step,completedSteps:(Array.isArray(raw.completedSteps)?raw.completedSteps:[]).filter((n:number)=>Number.isInteger(n)&&n!==15).map((n:number)=>n>15?n-1:n)}
+      if(resetRemoved)raw=selectStep({...fresh(),records:raw.records,completedSteps:raw.completedSteps},15)
+    }
+    if(raw.version!==5||!Number.isInteger(raw.step)||!stages[raw.step]||!['adjust','observe','answer','done'].includes(raw.phase))return fresh()
     const base=fresh()
     if(Object.keys(base).some(key=>key!=='motion'&&typeof raw[key]!==typeof base[key as keyof LabState]))return fresh()
     if(![null,'water-in','water-out','burn'].includes(raw.motion))return fresh()
@@ -118,7 +121,6 @@ export function ready(s:LabState):boolean{
     case 'f-source':return s.source==='F'
     case 'virtual':return s.throughLens
     case 'infinity':return s.scanned[0]<=8&&s.scanned[1]>=34
-    case 'cover':return s.touched&&s.cover>=25&&s.cover<=75
     case 'near-glasses':return s.glasses==='near'&&p.focused
     case 'far-glasses':return s.glasses==='far'&&p.focused
     case 'water-in':return s.waterInstalled&&s.water===1&&p.focused

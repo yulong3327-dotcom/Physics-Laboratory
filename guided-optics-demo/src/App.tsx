@@ -45,7 +45,7 @@ export default function App({onHome}:{onHome:()=>void}){
   },[s.motion,s.step])
   useEffect(()=>()=>{if(timer.current!==null)clearTimeout(timer.current);if(toastTimer.current!==null)clearTimeout(toastTimer.current)},[])
   function patch(values:Partial<LabState>){setState(prev=>({...prev,...values}))}
-  function speak(ids:string|string[],interrupt=false){if(timer.current!==null)clearTimeout(timer.current);timer.current=null;voice.announce(ids,{interrupt})}
+  function speak(ids:string|string[],interrupt=false,replacePending=false){if(timer.current!==null)clearTimeout(timer.current);timer.current=null;voice.announce(ids,{interrupt,replacePending})}
   function encourage(message:string){setToast(message);if(toastTimer.current!==null)clearTimeout(toastTimer.current);toastTimer.current=window.setTimeout(()=>setToast(''),2400)}
   function openTopics(){setDialog('more')}
   function announce(id:string,delay=0){
@@ -57,11 +57,11 @@ export default function App({onHome}:{onHome:()=>void}){
   function jump(step:number,base=s,interrupt=true){
     if(timer.current!==null)clearTimeout(timer.current);timer.current=null;spoken.current.clear()
     const next=selectStep(base,step);setState(next);setAnswers([]);setErrors([]);setHint(null);setGraph(stages[next.step].id==='graph');setDialog(null);setToast('')
-    const target=stages[next.step];speak([target.cue,...target.actionCue?[target.actionCue]:[]],interrupt)
+    const target=stages[next.step];speak([target.cue,...target.actionCue?[target.actionCue]:[]],interrupt,true)
   }
   function complete(){patch({phase:'done',completedSteps:[...new Set([...s.completedSteps,s.step])]});setHint({text:summary?'整节课完成！用这张总表回顾五种成像情况。':'观察与判断完成，可以继续下一步。',tone:'good'})}
   function next(){jump(Math.min(stages.length-1,s.step+1),s,false)}
-  function move(kind:'u'|'screen'|'height'|'cover',value:number,tolerance=matchMedia('(pointer: coarse)').matches?1.7:1.2){
+  function move(kind:'u'|'screen'|'height',value:number,tolerance=matchMedia('(pointer: coarse)').matches?1.7:1.2){
     if(s.phase!=='adjust'||s.motion)return
     const adjusted=snapAdjustment(s,kind,value,tolerance)
     const values:Partial<LabState>={[kind]:adjusted,touched:true}
@@ -71,8 +71,6 @@ export default function App({onHome}:{onHome:()=>void}){
     let text='',tone:Hint['tone']='tip',cue:string|undefined
     if(kind==='height'){
       text=adjusted===0?'三个中心已经同高。观察光屏上的像是否回到中央。':adjusted<0?'焰心偏高，向下微调，留意光屏上的像反向移动。':'焰心偏低，向上微调，留意光屏上的像反向移动。';tone=adjusted===0?'good':'warn';cue=adjusted===0?'old-06':'old-05'
-    }else if(kind==='cover'){
-      text=value===0?'现在无遮挡，记住这个亮度，再挡住一部分透镜。':`已遮挡 ${value}%：仔细比较像是否完整，亮度有什么变化。`;tone=value>0?'good':'tip'
     }else if(stage.id==='graph'){
       text=physics.focused?Math.abs(next.u-20)<.1?'看，物距与像距相等！u = v = 2f，焦距就是这个距离的一半。':'像已清晰，绿点落在曲线上。移动蜡烛，再观察物距与像距怎样变化。':`橙点表示当前光屏位置，还不能当作像距。将光屏${next.screen<physics.v?'远离':'靠近'}透镜，让点回到蓝色曲线上。`;tone=physics.focused?'good':'tip'
     }else if(stage.targetURange&&(next.u<stage.targetURange[0]||next.u>stage.targetURange[1])){
@@ -106,7 +104,7 @@ export default function App({onHome}:{onHome:()=>void}){
       patch({phase:'observe',...stage.id==='causes'?{u:11,screen:38,height:0}:{}})
       setHint({text:stage.id==='causes'?'现在看物距 11.0 cm 的场景，光屏已到导轨远端。':stage.id==='graph'?'结论已经标在图上：u = v = 2f，所以 f = u / 2 = 10 cm。':'先看实验结果，比较物与像，再进入答题。',tone:'tip'})
       if(stage.id==='graph')setGraph(true)
-      speak(stage.id==='graph'?'007':stage.id==='water-out'?['044','045']:stage.id==='cover'?'032':stage.id==='alignment'?'old-06':'old-23')
+      speak(stage.id==='graph'?'007':stage.id==='water-out'?['044','045']:stage.id==='alignment'?'old-06':'old-23')
     }else{patch({phase:'answer'});setAnswers([]);setErrors([]);setHint(null)}
   }
   function submit(){
@@ -156,7 +154,7 @@ export default function App({onHome}:{onHome:()=>void}){
       <div className="question-line"><span className="type-tag">题型 {currentGroup+1}</span><h1>{s.phase==='answer'?question?.prompt||stage.task:stage.task}</h1></div>
       {summary?<><ConclusionTable/><div className="summary-actions"><button className="secondary-button" onClick={openTopics}><LayoutGrid size={16}/>回看题型</button><button className="secondary-button" onClick={()=>void downloadRecords().catch(()=>encourage('也可以直接截图保存这张规律表。'))}><ArrowDownToLine size={16}/>{nativeApp?'保存或分享规律表':'下载规律表'}</button>{!nativeApp&&<button className="secondary-button" onClick={()=>window.print()}><Printer size={16}/>打印规律表</button>}</div></>:<div className="content-grid"><div className="left-workspace">
         {stage.id==='graph'&&s.touched&&<div className="view-switch" role="tablist" aria-label="图像实验视图"><button role="tab" aria-selected={!graph} onClick={()=>setGraph(false)}>光具座</button><button role="tab" aria-selected={graph} onClick={()=>setGraph(true)}>物距—像距图像</button></div>}
-        {stage.id==='graph'&&s.touched&&graph?<DistanceGraph state={s} onEqual={showEqualPosition}/>:<Bench state={s} onPlace={place} onObject={(n,t)=>move('u',n,t)} onScreen={(n,t)=>move('screen',n,t)} onHeight={(n,t)=>move('height',n,t)} onCover={n=>move('cover',n)} onMisplace={()=>{setHint({text:'还差一点点，对准圆形标记再松手。',tone:'warn'});announce('old-02')}}/>}
+        {stage.id==='graph'&&s.touched&&graph?<DistanceGraph state={s} onEqual={showEqualPosition}/>:<Bench state={s} onPlace={place} onObject={(n,t)=>move('u',n,t)} onScreen={(n,t)=>move('screen',n,t)} onHeight={(n,t)=>move('height',n,t)} onMisplace={()=>{setHint({text:'还差一点点，对准圆形标记再松手。',tone:'warn'});announce('old-02')}}/>}
         <MentorPrompt guide={{...voice,close:()=>{if(timer.current!==null)clearTimeout(timer.current);timer.current=null;voice.close()}}} detail={guidance} tone={hint?.tone||'tip'}/>
       </div><div className="right-workspace"><ScreenStatus state={s}/><aside className="action-panel" aria-label="当前步骤操作"><div className="panel-index"><span>{s.phase==='done'?'本节完成':s.phase==='answer'?'观察后作答':s.phase==='observe'?'先观察结果':stage.title}</span><strong>{s.step+1} / {stages.length}</strong></div>
         {question&&<div className="phase-indicators"><span className={s.phase==='adjust'?'current':'passed'}>操作</span><span className={s.phase==='observe'?'current':s.phase==='answer'||s.phase==='done'?'passed':''}>观察</span><span className={s.phase==='answer'?'current':s.phase==='done'?'passed':''}>作答</span></div>}
@@ -173,7 +171,6 @@ export default function App({onHome}:{onHome:()=>void}){
             {stage.screenMove&&!s.throughLens&&<Slider label="光屏距透镜" value={s.screen} min={5} max={38} disabled={!screenEnabled} onChange={(n,t)=>move('screen',n,t)}/>}
             {stage.id==='graph'&&s.touched&&<><button className="secondary-button" onClick={showEqualPosition}><Focus size={16}/>查看物距＝像距的位置</button><button className="secondary-button" disabled={!p.focused} onClick={record}><Plus size={15}/>记录此组数据{s.samples.length>0?`（已记录 ${s.samples.length} 组）`:''}</button></>}
             {stage.id==='virtual'&&<button className="secondary-button" disabled={!scanned||s.throughLens} onClick={()=>{patch({throughLens:true});setHint({text:'从透镜另一侧看，比较像的正倒与大小。',tone:'good'});speak('old-22')}}><EyeIcon/>{s.throughLens?'正在透镜另一侧观察':'移开光屏，透过透镜观察'}</button>}
-            {stage.id==='cover'&&<Slider label="透镜遮挡比例" value={s.cover} min={0} max={75} unit="%" step={5} onChange={n=>move('cover',n)}/>}
             {stage.id==='causes'&&<div className="cause-list">{['三心不同高','物体在焦点内','光具座太短'].map((text,i)=><button key={text} className={s.causes.includes(i)?'visited':''} onClick={()=>cause(i)}>{s.causes.includes(i)?<Check size={14}/>:i+1}{text}</button>)}</div>}
             {stage.id==='burn'&&<><div className="mode-buttons"><button onClick={()=>{patch({lit:false,burned:0,height:0,motion:null});setHint(null);speak('051')}}><RotateCcw size={15}/>换新蜡烛</button><button disabled={!!s.motion||s.burned>=3} onClick={burn}><FlameIcon size={15}/>{s.motion==='burn'?'燃烧中…':s.burned>=3?'观察完成':'点燃蜡烛'}</button></div><p>{s.lit?'加速观察：比较焰心与像的移动方向。':'点燃后，观察蜡烛逐渐变短的过程。'}</p></>}
             {stage.id==='swap'&&<button className="secondary-button" disabled={s.swapped} onClick={()=>{patch({swapped:true,u:15,screen:30});setHint({text:'蜡烛与光屏已在两侧互换。透镜不动，观察清晰像的大小。',tone:'good'})}}><ArrowLeftRight size={16}/>{s.swapped?'两侧位置已互换':'互换蜡烛与光屏'}</button>}

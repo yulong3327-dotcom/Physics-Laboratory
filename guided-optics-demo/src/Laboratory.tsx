@@ -35,7 +35,7 @@ export default function Laboratory() {
       <div className="library-section-heading"><h2>物理实验</h2><span>1 个实验</span></div>
       <button className="experiment-entry" aria-label="进入凸透镜实验" onClick={() => navigate(true)}>
         <div className="experiment-image"><img src="optics-preview.png" alt="蜡烛、凸透镜和光屏组成的光学实验装置"/><span>光学实验</span></div>
-        <div className="experiment-info"><div className="experiment-tags"><span>初中物理</span><span>14 个题型</span></div><h3>凸透镜成像规律</h3><p>探究物距、像距与成像特点</p><div className="experiment-progress"><BookOpen size={15}/><span>{started ? `已完成 ${completed} / ${stages.length} 小节` : '从摆放实验器材开始'}</span></div>{started && <progress max={stages.length} value={completed} aria-label="实验完成进度"/>}<div className="experiment-enter"><span>{started ? '继续实验' : '开始实验'}</span><ArrowRight size={20}/></div></div>
+        <div className="experiment-info"><div className="experiment-tags"><span>初中物理</span><span>13 个题型</span></div><h3>凸透镜成像规律</h3><p>探究物距、像距与成像特点</p><div className="experiment-progress"><BookOpen size={15}/><span>{started ? `已完成 ${completed} / ${stages.length} 小节` : '从摆放实验器材开始'}</span></div>{started && <progress max={stages.length} value={completed} aria-label="实验完成进度"/>}<div className="experiment-enter"><span>{started ? '继续实验' : '开始实验'}</span><ArrowRight size={20}/></div></div>
       </button>
       <div className="library-note"><CheckCircle2 size={16}/><span>{native ? '实验、字体与语音已内置' : '实验进度自动保存在当前设备'}</span></div>
     </main>

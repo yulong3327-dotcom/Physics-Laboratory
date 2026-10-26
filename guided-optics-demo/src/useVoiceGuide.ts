@@ -23,12 +23,12 @@ export function useVoiceGuide(initialId:string){
     busy.current=true
     a.onplaying=()=>{if(serial===request.current){setPlaying(true);played.current=true}}
     a.onpause=()=>setPlaying(false)
-    a.onerror=()=>{if(serial===request.current){busy.current=false;setPlaying(false);setError(true);queue.current=[]}}
+    a.onerror=()=>{if(serial===request.current){busy.current=false;setPlaying(false);setError(true);const next=queue.current.shift();if(next){show(next.id);play(next.id)}}}
     a.onended=()=>{if(serial!==request.current)return;busy.current=false;setPlaying(false);const next=queue.current.shift();if(next){show(next.id);play(next.id)}}
     a.src=new URL(src,document.baseURI).href;a.currentTime=0
-    void a.play().catch(()=>{if(serial===request.current){busy.current=false;setPlaying(false)}})
+    void a.play().catch(error=>{if(serial===request.current){busy.current=false;setPlaying(false);if(error?.name!=='NotAllowedError'){setError(true);const next=queue.current.shift();if(next){show(next.id);play(next.id)}}}})
   }
-  function announce(ids:string|string[],options:{interrupt?:boolean;feedback?:boolean}={}){
+  function announce(ids:string|string[],options:{interrupt?:boolean;feedback?:boolean;replacePending?:boolean}={}){
     const list=(Array.isArray(ids)?ids:[ids]).filter(id=>cueById.has(id))
     if(!list.length)return
     // Unrecorded lines remain text-only; do not request a missing file or play an unrelated clip.
@@ -37,7 +37,7 @@ export function useVoiceGuide(initialId:string){
     const incoming=list.slice(start).map(id=>({id,feedback:!!options.feedback}))
     // Finish the current sentence; retain only the latest pending drag hint.
     if(busy.current&&!options.interrupt){
-      queue.current=queue.current.filter(c=>!c.feedback)
+      queue.current=options.replacePending?[]:queue.current.filter(c=>!c.feedback)
       for(const cue of incoming)if(cue.id!==cueRef.current&&!queue.current.some(c=>c.id===cue.id))queue.current.push(cue)
       return
     }
@@ -50,8 +50,8 @@ export function useVoiceGuide(initialId:string){
   function reopen(){openRef.current=true;setOpen(true);play()}
   useEffect(()=>{
     play(initialId)
-    const unlock=(event:PointerEvent)=>{if((event.target as Element)?.closest('.mentor-controls'))return;if(!played.current&&!busy.current&&openRef.current&&!mutedRef.current)play();document.removeEventListener('pointerdown',unlock,true)}
-    const visibility=()=>{const a=audioRef.current;if(!a)return;if(document.hidden){a.pause();setPlaying(false)}else if(busy.current&&!mutedRef.current&&openRef.current)void a.play().catch(()=>{busy.current=false;setPlaying(false)})}
+    const unlock=(event:PointerEvent)=>{if((event.target as Element)?.closest('.mentor-controls'))return;if(!played.current&&!busy.current&&openRef.current&&!mutedRef.current)play()}
+    const visibility=()=>{const a=audioRef.current;if(!a)return;if(document.hidden){a.pause();setPlaying(false)}else if(!mutedRef.current&&openRef.current&&!a.ended&&a.paused)void a.play().catch(()=>{busy.current=false;setPlaying(false)})}
     document.addEventListener('pointerdown',unlock,true)
     document.addEventListener('visibilitychange',visibility)
     return()=>{busy.current=false;request.current++;document.removeEventListener('pointerdown',unlock,true);document.removeEventListener('visibilitychange',visibility);audioRef.current?.pause()}
